@@ -1,8 +1,12 @@
-# 弹弹桌宠 v0.4
+# 弹弹桌宠 v0.4.1
 
 Windows 10 / 11 桌宠，使用透明 GIF 作为角色，支持系统音频律动、按压形变、自由旋转和屏幕边缘反弹。原生 .NET 8 / WPF 实现，Windows x64 免安装版自带运行环境。
 
-[GitHub 源码](https://github.com/Mr-Goodname/dandan-desktop-pet) · [下载最新免安装版](https://github.com/Mr-Goodname/dandan-desktop-pet/releases/latest) · [反馈问题](https://github.com/Mr-Goodname/dandan-desktop-pet/issues)
+[私有 GitHub 仓库](https://github.com/Mr-Goodname/dandan-desktop-pet) · [登录后下载](https://github.com/Mr-Goodname/dandan-desktop-pet/releases/latest)
+
+仓库因人物 GIF 缺少公开发布授权而保持私有，角色 GIF、拆分帧、预览图和衍生图标不对外公开分发。访问源码和发布附件需要有权限的 GitHub 账号登录。
+
+v0.4.1 修复了气泡后台预热后，首次显示长台词时仍沿用旧窗口裁剪范围的问题。预热改用独立图形，首次显示后由窗口重新完成布局。
 
 ## 启动与操作
 
@@ -16,7 +20,7 @@ Windows 10 / 11 桌宠，使用透明 GIF 作为角色，支持系统音频律�
 
 设置即时生效并自动保存。升级时继续使用原有设置，自定义素材和音效保留。
 
-GitHub 公开源码和免安装包不附带 Ya1 / Ya2 两段音效，默认使用程序合成音效。此前的本地完整版本保留两段文件；公开版也可导入自己的 WAV / MP3。
+仓库和发布附件不附带 Ya1 / Ya2 两段音效，使用程序合成音效；本地完整版本保留两段文件，也可导入自己的 WAV / MP3。
 
 ## v0.4 更新
 
@@ -30,7 +34,7 @@ GitHub 公开源码和免安装包不附带 Ya1 / Ya2 两段音效，默认使�
 
 ### 手动检查更新
 
-设置中的“检查更新”按钮仅在点击时连接 GitHub，读取 [Mr-Goodname/dandan-desktop-pet](https://github.com/Mr-Goodname/dandan-desktop-pet) 最新正式 Release 的版本信息。发现新版后可打开对应的 GitHub 发布页，自行下载免安装包。
+设置中的“检查更新”按钮仅在点击时连接 GitHub。公开仓库可读取最新正式 Release；当前仓库为私有，程序会提示登录 [GitHub 发布页](https://github.com/Mr-Goodname/dandan-desktop-pet/releases) 查看和下载，不在程序中保存 GitHub 令牌。
 
 程序不在后台定时检查，不自动下载、安装或覆盖文件。音频、素材和自定义对话不会随更新检查上传。
 
@@ -40,7 +44,7 @@ GitHub 公开源码和免安装包不附带 Ya1 / Ya2 两段音效，默认使�
 
 按压弹性幅度支持 0–3 倍，设为 0 时只播放音效。可选择合成音效或自定义 WAV / MP3。声音提前解码缓存，输出设备在后台准备并复用，鼠标事件不直接打开或关闭声音驱动。
 
-本地完整版本的橡胶鸭音效在按下时播放 Ya1、松开时播放 Ya2；快速单击按顺序完整播放。公开版本不分发这两个文件，缺少配对文件时自动使用合成音效。
+本地完整版本的橡胶鸭音效在按下时播放 Ya1、松开时播放 Ya2；快速单击按顺序完整播放。仓库发布附件不分发这两个文件，缺少配对文件时自动使用合成音效。
 
 自定义音效最大 20 MB、10 秒，导入时解码并复制到本地 `Sounds` 目录，之后不依赖原文件。
 

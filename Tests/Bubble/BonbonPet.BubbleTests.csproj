@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../BubbleWindow.cs" Link="BubbleWindow.cs" />
+    <Compile Include="../../Core/PetSettings.cs" Link="PetSettings.cs" />
     <Compile Include="../../Services/DesktopService.cs" Link="DesktopService.cs" />
   </ItemGroup>
 </Project>

@@ -53,10 +53,20 @@ public sealed class BubbleWindow : Window
     {
         if (_prepared) return;
         new WindowInteropHelper(this).EnsureHandle();
-        LayoutText();
-        // Pay the first glyph/vector setup cost during startup, not on a click.
-        var warmup = new RenderTargetBitmap((int)Math.Ceiling(Width), (int)Math.Ceiling(Height), 96, 96, PixelFormats.Pbgra32);
-        warmup.Render(_surface);
+        // Warm a detached visual. Manually arranging the live content while its
+        // HWND is hidden leaves WPF with the warmup window's stale layout clip.
+        var warmText = new TextBlock
+        {
+            Text = _text.Text, FontFamily = FontFamily, FontSize = _text.FontSize,
+            Foreground = ThoughtBubbleSurface.Ink, TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center, LineHeight = _text.LineHeight,
+            LineStackingStrategy = LineStackingStrategy.BlockLineHeight
+        };
+        var warmSurface = new ThoughtBubbleSurface(warmText);
+        warmSurface.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        warmSurface.Arrange(new Rect(warmSurface.DesiredSize));
+        var warmup = new RenderTargetBitmap((int)Math.Ceiling(warmSurface.ActualWidth), (int)Math.Ceiling(warmSurface.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        warmup.Render(warmSurface);
         _prepared = true;
     }
 
@@ -64,9 +74,8 @@ public sealed class BubbleWindow : Window
     {
         Prepare();
         _text.Text = text ?? "";
-        LayoutText();
         if (!IsVisible) Show();
-        UpdateLayout();
+        LayoutText();
     }
 
     public void SetAppearance(string family, double size)
@@ -83,7 +92,7 @@ public sealed class BubbleWindow : Window
         {
             _text.FontSize = size; _text.LineHeight = size * 1.55; changed = true;
         }
-        if (changed && _prepared) LayoutText();
+        if (changed && IsVisible) LayoutText();
     }
 
     private void LayoutText()
@@ -92,8 +101,9 @@ public sealed class BubbleWindow : Window
         var desired = _surface.DesiredSize;
         Width = Math.Ceiling(desired.Width);
         Height = Math.Ceiling(desired.Height);
-        _surface.Arrange(new Rect(0, 0, Width, Height));
-        _surface.UpdateLayout();
+        // Let the visible window own the final arrange and clipping rectangle.
+        _surface.InvalidateArrange();
+        InvalidateMeasure(); UpdateLayout();
     }
 
     public void Place(double xPixels, double yPixels, bool topmost) =>

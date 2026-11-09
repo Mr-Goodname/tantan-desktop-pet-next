@@ -21,6 +21,8 @@ Windows x64 免安装版包含 Microsoft .NET 8 的 .NETCore / WindowsDesktop �
 
 ## 角色 GIF、图片及图标
 
+用户已确认人物 GIF 没有公开发布授权，因此仓库保持私有。人物 GIF、拆分动画帧、预览图和衍生图标不对外公开分发。
+
 默认 `Assets/default-original.gif` 为用户在本次开发请求中提供的透明 GIF。`Assets/default/frame-*.png` 为其动画帧缓存；`Assets/preview.png` 和相关角色图标属于素材或衍生文件。
 
 现有提供信息不能确认原作者或再分发许可。用户提供、处理或打包素材并不使其适用本项目的 MIT 许可。本说明不对这些素材声明原创版权或授予再许可。

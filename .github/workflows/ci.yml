@@ -22,6 +22,7 @@ jobs:
             'Tests/BonbonPet.PhysicsTests.csproj',
             'Tests/Pointer/BonbonPet.PointerTests.csproj',
             'Tests/Outline/BonbonPet.OutlineTests.csproj',
+            'Tests/Bubble/BonbonPet.BubbleTests.csproj',
             'Tests/Sounds/BonbonPet.SoundTests.csproj',
             'Tests/Updates/BonbonPet.UpdateTests.csproj'
           )

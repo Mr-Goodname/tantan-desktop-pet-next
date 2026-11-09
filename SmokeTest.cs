@@ -95,10 +95,12 @@ internal static class SmokeTest
             ((System.Windows.Controls.ScrollViewer)pet.SettingsPanel.FindName("DialogueScroll")).ScrollToVerticalOffset(230);
             await Task.Delay(80);
             Snapshot((FrameworkElement)pet.SettingsPanel.Content, Path.Combine(output, "dialogue-settings.png"));
-            if (Environment.GetCommandLineArgs().Contains("--verify-updates"))
+            bool privateUpdates = Environment.GetCommandLineArgs().Contains("--verify-private-updates");
+            if (Environment.GetCommandLineArgs().Contains("--verify-updates") || privateUpdates)
             {
                 var update = await pet.SettingsPanel.CheckForUpdatesAsync();
-                Require(update.Status == UpdateStatus.UpToDate, "actual GitHub latest release matches installed version", checks);
+                Require(privateUpdates ? update.Status == UpdateStatus.NoRelease && update.Message.Contains("私有") : update.Status == UpdateStatus.UpToDate,
+                    privateUpdates ? "private GitHub access guides users to the signed-in release page" : "actual GitHub latest release matches installed version", checks);
                 ((System.Windows.Controls.TabControl)pet.SettingsPanel.FindName("SettingsTabs")).SelectedIndex = 3;
                 await Task.Delay(80);
                 Snapshot((FrameworkElement)pet.SettingsPanel.Content, Path.Combine(output, "update-settings.png"));

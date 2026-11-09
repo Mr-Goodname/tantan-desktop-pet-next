@@ -81,7 +81,7 @@ public sealed class UpdateService : IDisposable
             using var response = await _client.GetAsync(_latestReleaseApi,
                 HttpCompletionOption.ResponseContentRead, timeoutSource.Token).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.NotFound)
-                return Result(UpdateStatus.NoRelease, "暂未发布正式版本。");
+                return Result(UpdateStatus.NoRelease, "仓库可能为私有或尚无正式版本。私有仓库请登录 GitHub 发布页查看。");
             if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
                 return Result(UpdateStatus.Failed, "GitHub 暂时限制了查询，请稍后再试。");
             if (!response.IsSuccessStatusCode)

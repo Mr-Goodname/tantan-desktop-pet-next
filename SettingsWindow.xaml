@@ -112,13 +112,13 @@
       <WrapPanel Margin="0,12,0,0"><Button x:Name="CheckUpdateButton" Content="检查更新" Click="CheckUpdate_Click" Margin="0,0,8,8"/><Button x:Name="UpdateDownloadButton" Content="下载新版本" Click="UpdateDownload_Click" IsEnabled="False" Margin="0,0,0,8"/></WrapPanel>
       <TextBlock x:Name="UpdateStatusText" Text="尚未检查更新。" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,12"/>
       <Button Content="打开 GitHub 发布页" Click="OpenReleases_Click"/>
-      <TextBlock Text="点击“检查更新”时才访问 GitHub。下载按钮会打开发布页，由你选择下载和替换程序。" Style="{StaticResource Hint}" Margin="0,14,0,0"/>
+      <TextBlock Text="点击“检查更新”时才访问 GitHub。私有仓库需要登录 GitHub 发布页查看和下载；下载后由你替换程序。" Style="{StaticResource Hint}" Margin="0,14,0,0"/>
      </StackPanel></Border>
     </StackPanel></ScrollViewer></TabItem>
    </TabControl>
   </Grid>
   <Grid Grid.Row="2" Margin="0,18,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <TextBlock x:Name="FooterStatus" Text="设置自动保存 · v0.4" Foreground="{StaticResource Muted}" FontSize="11" VerticalAlignment="Center"/>
+   <TextBlock x:Name="FooterStatus" Text="设置自动保存 · v0.4.1" Foreground="{StaticResource Muted}" FontSize="11" VerticalAlignment="Center"/>
    <Button Grid.Column="1" Content="关闭设置" Click="Close_Click" Padding="20,9"/>
   </Grid>
  </Grid>

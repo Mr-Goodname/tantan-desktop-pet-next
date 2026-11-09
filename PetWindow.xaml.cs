@@ -348,6 +348,12 @@ public partial class PetWindow : Window, IDisposable
         if (_settingsWindow == null)
         {
             _settingsWindow = new SettingsWindow(this);
+            if (_testing)
+            {
+                _settingsWindow.WindowStartupLocation = WindowStartupLocation.Manual;
+                _settingsWindow.Left = _settingsWindow.Top = -10000;
+                _settingsWindow.ShowActivated = false;
+            }
             _settingsWindow.Closed += (_, _) => { _settingsWindow = null; if (!_testing) SaveSettings(); };
         }
         else _settingsWindow.Reload();
