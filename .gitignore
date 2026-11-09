@@ -1,0 +1,14 @@
+bin/
+obj/
+dist/
+tools/sdk-shim*/
+tools/**/bin/
+tools/**/obj/
+Tests/**/bin/
+Tests/**/obj/
+artifacts/
+Assets/Sounds/Ya1.mp3
+Assets/Sounds/Ya2.mp3
+Tests/audio-result.json
+Tests/sprite-fixtures/actual-*.png
+Tests/sprite-fixtures/default-actual-*.png

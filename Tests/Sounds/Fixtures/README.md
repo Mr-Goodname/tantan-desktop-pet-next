@@ -1,0 +1,1 @@
+`duck.mp3` is a 330 ms test fixture generated from BonbonPet's own synthetic duck waveform and encoded with Windows Media Foundation at 96 kbps. It contains no external recording or third-party character material. The test only decodes it; it never plays sound or requires an MP3 encoder.

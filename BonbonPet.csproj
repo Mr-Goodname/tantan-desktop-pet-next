@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>BonbonPet</AssemblyName>
+    <AssemblyTitle>弹弹桌宠</AssemblyTitle>
+    <Product>弹弹桌宠</Product>
+    <RootNamespace>BonbonPet</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\bonbon.ico</ApplicationIcon>
+    <Version>0.4.0</Version>
+    <Description>弹弹桌宠 — 音频律动与桌面物理互动</Description>
+    <Company>弹弹桌宠</Company>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tools\**;Tests\**;artifacts\**;dist\**</DefaultItemExcludes>
+    <DuckSoundExclusions Condition="'$(IncludeLocalDuckSounds)' == 'false'">Assets\Sounds\Ya1.mp3;Assets\Sounds\Ya2.mp3</DuckSoundExclusions>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <Compile Remove="Tests\**;tools\**" />
+    <None Remove="Tests\**;tools\**" />
+    <Content Include="Assets\**\*" Exclude="$(DuckSoundExclusions)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Include="licenses\**\*;LICENSE;THIRD_PARTY_NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+  </ItemGroup>
+</Project>

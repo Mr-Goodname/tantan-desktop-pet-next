@@ -1,0 +1,31 @@
+name: Build and checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build public source
+        run: dotnet build BonbonPet.csproj -c Release
+      - name: Run offline regression checks
+        shell: pwsh
+        run: |
+          $projects = @(
+            'Tests/BonbonPet.PhysicsTests.csproj',
+            'Tests/Pointer/BonbonPet.PointerTests.csproj',
+            'Tests/Outline/BonbonPet.OutlineTests.csproj',
+            'Tests/Sounds/BonbonPet.SoundTests.csproj',
+            'Tests/Updates/BonbonPet.UpdateTests.csproj'
+          )
+          foreach ($projectPath in $projects) {
+            dotnet run --project $projectPath -c Release
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
