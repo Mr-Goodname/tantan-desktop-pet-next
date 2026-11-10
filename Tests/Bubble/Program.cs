@@ -52,10 +52,12 @@ internal static class Program
         {
             bubble.SetAppearance("Microsoft YaHei UI", 13.5, visualScale, 400);
             Validate(bubble, $"uniform scale {visualScale}");
-            Check(Math.Abs((bubble.ActualWidth - 4) - naturalWidth * visualScale) <= visualScale + 1 &&
-                Math.Abs((bubble.ActualHeight - 4) - naturalHeight * visualScale) <= visualScale + 1,
+            double effectiveScale = bubble.CurrentVisualScale;
+            Check(effectiveScale <= visualScale &&
+                Math.Abs((bubble.ActualWidth - 4) - naturalWidth * effectiveScale) <= effectiveScale + 1 &&
+                Math.Abs((bubble.ActualHeight - 4) - naturalHeight * effectiveScale) <= effectiveScale + 1,
                 $"Whole visual scales at {visualScale}, including measured strokes and dots", false);
-            Check(Math.Abs(bubble.CurrentFontSize - 13.5 * visualScale) < .0001,
+            Check(Math.Abs(bubble.CurrentFontSize - 13.5 * effectiveScale) < .0001,
                 $"Effective font size scales at {visualScale}", false);
         }
         Snapshot((FrameworkElement)bubble.Content, Path.Combine(output, "bubble-scaled-large.png"));
@@ -99,6 +101,18 @@ internal static class Program
         bubble.Say(new string('耶', 110));
         bubble.FitToBounds(420, 900); Validate(bubble, "110 repeated large characters stay within paper");
         Snapshot((FrameworkElement)bubble.Content, Path.Combine(output, "bubble-fitted.png"));
+        // Model a real small client, independently of the screen budget passed
+        // by the caller. Layout must respect the resulting HWND size and clip.
+        bubble.MaxWidth = 310; bubble.MaxHeight = 220;
+        bubble.FitToBounds(1400, 900); bubble.Say(new string('耶', 110));
+        Validate(bubble, "native constrained client");
+        Check(bubble.ActualWidth <= 311 && bubble.ActualHeight <= 221 && bubble.CurrentVisualScale < bubble.RequestedVisualScale,
+            "Actual small client dimensions uniformly reduce the full bubble and text");
+        double nativeLimitedScale = bubble.CurrentVisualScale;
+        bubble.MaxWidth = bubble.MaxHeight = double.PositiveInfinity;
+        bubble.Say(new string('耶', 110)); Validate(bubble, "native client constraint removed");
+        Check(bubble.CurrentVisualScale > nativeLimitedScale && bubble.RequestedVisualScale == 5,
+            "Removing the native size ceiling restores the requested scale as desktop space permits");
         bubble.Close(); app.Shutdown();
         Console.WriteLine($"{_checks} bubble checks passed; native size difference at most {_maximumNativeSizeDifference:F3}px. Preview: " + output);
     }

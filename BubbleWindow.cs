@@ -21,6 +21,8 @@ public sealed class BubbleWindow : Window
     private string? _configuredFont;
     private double _requestedVisualScale = 1;
     private double _maxWidth = double.PositiveInfinity, _maxHeight = double.PositiveInfinity;
+    private bool _nativeSizeLimited;
+    private (double Left, double Top, double Right, double Bottom) _nativeLimitMonitor;
     internal string CurrentText => _text.Text;
     internal double CurrentFontSize => _text.FontSize * CurrentVisualScale;
     internal int CurrentFontWeight => _text.FontWeight.ToOpenTypeWeight();
@@ -57,6 +59,7 @@ public sealed class BubbleWindow : Window
         _host = new Border { Child = _surface, Padding = new Thickness(2) };
         Content = _host;
         SourceInitialized += (_, _) => DesktopService.MakeToolWindow(new WindowInteropHelper(this).Handle, clickThrough: true);
+        DpiChanged += (_, _) => Dispatcher.BeginInvoke(new Action(() => { if (IsVisible) LayoutText(); }));
     }
 
     /// <summary>Warm the HWND, text layout and drawing while the bubble stays hidden.</summary>
@@ -134,15 +137,17 @@ public sealed class BubbleWindow : Window
     private void LayoutText()
     {
         var unlimited = new Size(double.PositiveInfinity, double.PositiveInfinity);
+        double availableWidth = _maxWidth, availableHeight = _maxHeight;
+        bool nativeLimited = false;
         // First attachment to a native DPI source can change text metrics. Size
         // from the surface's ink bounds and converge after the window's arrange,
         // rather than retaining a LayoutTransform's earlier constrained desire.
-        for (int pass = 0; pass < 3; pass++)
+        for (int pass = 0; pass < 6; pass++)
         {
             _surface.InvalidateMeasure(); _surface.Measure(unlimited);
             var natural = _surface.NaturalSize;
             double fittedScale = Math.Min(_requestedVisualScale,
-                Math.Min((_maxWidth - 4) / natural.Width, (_maxHeight - 4) / natural.Height));
+                Math.Min((availableWidth - 4) / natural.Width, (availableHeight - 4) / natural.Height));
             if (_visualTransform.ScaleX != fittedScale)
                 _visualTransform.ScaleX = _visualTransform.ScaleY = fittedScale;
             Width = Math.Ceiling(natural.Width * fittedScale + 4 - .0000001);
@@ -152,12 +157,38 @@ public sealed class BubbleWindow : Window
             InvalidateMeasure();
             if (!IsVisible) break;
             UpdateLayout();
+            // Windows can cap a layered HWND below its requested WPF size on
+            // a small monitor or desktop session. Its actual client then owns
+            // a smaller layout clip. Fit every element into that real budget.
+            // Keep this limit local: a later layout on a larger monitor retries
+            // the requested visual scale instead of retaining an old ceiling.
+            bool clientLimited = false;
+            if (_host.ActualWidth > 0 && _host.ActualWidth + .75 < Width)
+            {
+                availableWidth = Math.Min(availableWidth, Math.Max(8, _host.ActualWidth));
+                clientLimited = true;
+            }
+            if (_host.ActualHeight > 0 && _host.ActualHeight + .75 < Height)
+            {
+                availableHeight = Math.Min(availableHeight, Math.Max(8, _host.ActualHeight));
+                clientLimited = true;
+            }
+            if (clientLimited) { nativeLimited = true; continue; }
             if (_surface.NaturalSize == natural) break;
+        }
+        if (IsVisible)
+        {
+            _nativeSizeLimited = nativeLimited;
+            if (nativeLimited) _nativeLimitMonitor = DesktopService.GetMonitorBounds(new WindowInteropHelper(this).Handle);
         }
     }
 
-    public void Place(double xPixels, double yPixels, bool topmost) =>
-        DesktopService.PositionWindow(new WindowInteropHelper(this).Handle, xPixels, yPixels, topmost);
+    public void Place(double xPixels, double yPixels, bool topmost)
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        DesktopService.PositionWindow(handle, xPixels, yPixels, topmost);
+        if (_nativeSizeLimited && DesktopService.GetMonitorBounds(handle) != _nativeLimitMonitor) LayoutText();
+    }
 }
 
 internal sealed class ThoughtBubbleSurface : Decorator

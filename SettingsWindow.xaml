@@ -91,7 +91,7 @@
       <TextBlock x:Name="CharacterText" Text="默认角色 GIF" TextTrimming="CharacterEllipsis" FontSize="12" Margin="0,0,0,12"/>
       <WrapPanel><Button Content="选择图片 / GIF" Click="Import_Click" Margin="0,0,8,8"/><Button Content="恢复默认" Click="Default_Click" Margin="0,0,0,8"/></WrapPanel>
       <TextBlock Text="支持 GIF、PNG、JPG、BMP。透明素材可保留透明背景，GIF 可播放动画；导入素材会保存在本地。" Style="{StaticResource Hint}"/>
-      <TextBlock Text="默认人物素材来源：哔哩哔哩 @疚刃。" Style="{StaticResource Hint}" Margin="0,8,0,0"/>
+      <TextBlock Text="默认人物素材作者：哔哩哔哩 @疚刃。" Style="{StaticResource Hint}" Margin="0,8,0,0"/>
      </StackPanel></Border>
      <Border Style="{StaticResource Section}"><StackPanel>
       <TextBlock Text="随机对话" Style="{StaticResource SectionTitle}"/>
@@ -127,13 +127,13 @@
      <Border Style="{StaticResource Section}"><StackPanel>
       <TextBlock Text="弹弹桌宠 · Tantan" Style="{StaticResource SectionTitle}"/>
       <TextBlock x:Name="VersionText" FontSize="13" Margin="0,0,0,14"/>
-      <TextBlock Text="默认人物素材来源：哔哩哔哩 @疚刃。" Style="{StaticResource Hint}" Margin="0,0,0,12"/>
+      <TextBlock Text="默认人物素材作者：哔哩哔哩 @疚刃。" Style="{StaticResource Hint}" Margin="0,0,0,12"/>
       <TextBlock Text="每个角色独立保存素材、大小和运动设置。角色之间按可见轮廓碰撞；关闭漂浮的角色保持固定。最多可创建 12 个角色。" Style="{StaticResource Hint}" Margin="0,0,0,12"/>
       <TextBlock Text="检查 GitHub 上的最新正式版本。" Style="{StaticResource Hint}"/>
       <WrapPanel Margin="0,12,0,0"><Button x:Name="CheckUpdateButton" Content="检查更新" Click="CheckUpdate_Click" Margin="0,0,8,8"/><Button x:Name="UpdateDownloadButton" Content="下载新版本" Click="UpdateDownload_Click" IsEnabled="False" Margin="0,0,0,8"/></WrapPanel>
       <TextBlock x:Name="UpdateStatusText" Text="尚未检查更新。" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,12"/>
       <Button Content="打开 GitHub 发布页" Click="OpenReleases_Click"/>
-      <TextBlock Text="点击“检查更新”时才访问 GitHub。私有仓库需要登录 GitHub 发布页查看和下载；下载后由你替换程序。" Style="{StaticResource Hint}" Margin="0,14,0,0"/>
+      <TextBlock Text="点击“检查更新”时才访问 GitHub。可前往发布页下载最新版本，下载后手动替换程序。" Style="{StaticResource Hint}" Margin="0,14,0,0"/>
      </StackPanel></Border>
     </StackPanel></ScrollViewer></TabItem>
    </TabControl>

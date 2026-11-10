@@ -2,11 +2,11 @@
 
 Windows 10 / 11 桌宠，使用透明 GIF 作为角色，支持系统音频律动、按压形变、自由旋转和屏幕边缘反弹。原生 .NET 8 / WPF 实现，Windows x64 免安装版自带运行环境。
 
-[私有 GitHub 仓库](https://github.com/Mr-Goodname/tantan-desktop-pet-next) · [登录后下载](https://github.com/Mr-Goodname/tantan-desktop-pet-next/releases/latest)
+[GitHub 仓库](https://github.com/Mr-Goodname/tantan-desktop-pet-next) · [下载发布版](https://github.com/Mr-Goodname/tantan-desktop-pet-next/releases/latest)
 
 v0.5.0 支持在同一个程序中创建多个角色，每个角色独立调整素材、大小、运动、音效和对话。角色缩放会同步缩放气泡和文字；另有气泡整体大小、字体粗细和随机推进速度选项。气泡按完整描边计算边界，过长内容会整体缩小到屏幕范围内。
 
-仓库因人物 GIF 缺少公开发布授权而保持私有，角色 GIF、拆分帧、预览图和衍生图标不对外公开分发。访问源码和发布附件需要有权限的 GitHub 账号登录。
+默认人物素材作者为哔哩哔哩 **@疚刃**。用户已取得作者授权，可在注明作者的情况下公开发布本项目；程序内的素材与关于页面均保留署名。第三方人物素材不适用项目代码的 MIT 许可。
 
 v0.4.2 使用 Tantan 英文名。捏捏音效增大播放缓冲，新的点击会截断上一次声音，避免连续点击积压音效；编辑预设和自定义对话只更新对话池，自动保存交给后台处理。预设默认内容采用用户在运行中程序编辑的 29 行短句。
 
@@ -46,7 +46,7 @@ v0.4.1 修复了气泡后台预热后，首次显示长台词时仍沿用旧窗�
 
 ### 手动检查更新
 
-设置中的“检查更新”按钮仅在点击时连接 GitHub。公开仓库可读取最新正式 Release；当前仓库为私有，程序会提示登录 [GitHub 发布页](https://github.com/Mr-Goodname/tantan-desktop-pet-next/releases) 查看和下载，不在程序中保存 GitHub 令牌。
+设置中的“检查更新”按钮仅在点击时连接 GitHub，读取最新正式 Release 并打开[发布页](https://github.com/Mr-Goodname/tantan-desktop-pet-next/releases)下载。若使用私有仓库版本，程序会提示登录 GitHub 查看；程序不保存 GitHub 令牌。
 
 程序不在后台定时检查，不自动下载、安装或覆盖文件。音频、素材和自定义对话不会随更新检查上传。
 
