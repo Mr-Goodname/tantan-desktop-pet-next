@@ -12,7 +12,7 @@
     <RootNamespace>BonbonPet</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\bonbon.ico</ApplicationIcon>
-    <Version>0.4.2</Version>
+    <Version>0.5.0</Version>
     <Description>弹弹桌宠（Tantan）— 音频律动与桌面物理互动</Description>
     <Company>弹弹桌宠</Company>
     <DefaultItemExcludes>$(DefaultItemExcludes);tools\**;Tests\**;artifacts\**;dist\**</DefaultItemExcludes>

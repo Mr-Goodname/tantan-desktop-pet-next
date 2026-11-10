@@ -1,8 +1,10 @@
-# 弹弹桌宠（Tantan）v0.4.2
+# 弹弹桌宠（Tantan）v0.5.0
 
 Windows 10 / 11 桌宠，使用透明 GIF 作为角色，支持系统音频律动、按压形变、自由旋转和屏幕边缘反弹。原生 .NET 8 / WPF 实现，Windows x64 免安装版自带运行环境。
 
-[私有 GitHub 仓库](https://github.com/Mr-Goodname/tantan-desktop-pet) · [登录后下载](https://github.com/Mr-Goodname/tantan-desktop-pet/releases/latest)
+[私有 GitHub 仓库](https://github.com/Mr-Goodname/tantan-desktop-pet-next) · [登录后下载](https://github.com/Mr-Goodname/tantan-desktop-pet-next/releases/latest)
+
+v0.5.0 支持在同一个程序中创建多个角色，每个角色独立调整素材、大小、运动、音效和对话。角色缩放会同步缩放气泡和文字；另有气泡整体大小、字体粗细和随机推进速度选项。气泡按完整描边计算边界，过长内容会整体缩小到屏幕范围内。
 
 仓库因人物 GIF 缺少公开发布授权而保持私有，角色 GIF、拆分帧、预览图和衍生图标不对外公开分发。访问源码和发布附件需要有权限的 GitHub 账号登录。
 
@@ -12,7 +14,7 @@ v0.4.1 修复了气泡后台预热后，首次显示长台词时仍沿用旧窗�
 
 ## 启动与操作
 
-下载并解压[发布页](https://github.com/Mr-Goodname/tantan-desktop-pet/releases/latest)中的免安装包，打开 **弹弹桌宠.exe**。请保留旁边的 `Assets` 文件夹。首次启动显示设置；之后默认显示桌宠和托盘图标。
+下载并解压[发布页](https://github.com/Mr-Goodname/tantan-desktop-pet-next/releases/latest)中的免安装包，打开 **弹弹桌宠.exe**。请保留旁边的 `Assets` 文件夹。首次启动显示设置；之后默认显示桌宠和托盘图标。
 
 - **鼠标按下**：角色压扁，按住时维持压扁。
 - **鼠标松开**：角色弹性回弹。
@@ -22,13 +24,21 @@ v0.4.1 修复了气泡后台预热后，首次显示长台词时仍沿用旧窗�
 
 设置即时生效并自动保存。升级时继续使用原有设置，自定义素材和音效保留。
 
+## 多个角色
+
+设置上方的“创建角色”复制当前角色的设置并创建新实例；“当前角色”下拉框切换要编辑的角色。右键和托盘菜单也可创建角色、打开各自设置、隐藏或恢复显示。最多支持 12 个实例，同一素材共享冻结图像缓存，系统音频只捕获一次。
+
+每个实例独立保存名称、素材、大小、物理运动、音效和对话设置。移动角色之间会按可见轮廓碰撞反弹，固定角色和正在拖动的角色作为障碍保持当前位置。高速移动采用连续碰撞检测。“删除此角色”只移除实例，不删除导入素材；至少保留一个角色。“退出程序”退出全部角色，下次启动恢复角色列表和设置。
+
+默认人物素材来源为哔哩哔哩 **@疚刃**，程序的素材与关于页面均注明此来源。
+
 仓库和发布附件不附带 Ya1 / Ya2 两段音效，使用程序合成音效；本地完整版本保留两段文件，也可导入自己的 WAV / MP3。
 
 ## v0.4 更新
 
 ### 对话字体和内容
 
-在“素材与对话”中选择电脑已安装的字体，调节字号并预览。默认字体为 **Microsoft YaHei UI**，字号为 **13.5**，范围 **10–32**；泡泡会根据文字和字号调整布局。
+在“素材与对话”中选择电脑已安装的字体、字体粗细，调节字号并预览。默认字体为 **Microsoft YaHei UI**，基准字号为 **13.5**，基准范围 **10–32**；实际字号随角色大小及 50%–200% 的气泡比例同步变化，字号滑块显示当前缩放后的值。粗细支持九档（100–900）。气泡图形、描边和文字整体缩放，长句超过屏幕空间时整体缩小显示。
 
 “预置对话”和“自定义对话”分别编辑，均为每行一句，显示时从两者随机选择。预置内容可以修改、删除，也可以单独恢复默认；恢复预置不会清空自定义对话。
 
@@ -36,7 +46,7 @@ v0.4.1 修复了气泡后台预热后，首次显示长台词时仍沿用旧窗�
 
 ### 手动检查更新
 
-设置中的“检查更新”按钮仅在点击时连接 GitHub。公开仓库可读取最新正式 Release；当前仓库为私有，程序会提示登录 [GitHub 发布页](https://github.com/Mr-Goodname/tantan-desktop-pet/releases) 查看和下载，不在程序中保存 GitHub 令牌。
+设置中的“检查更新”按钮仅在点击时连接 GitHub。公开仓库可读取最新正式 Release；当前仓库为私有，程序会提示登录 [GitHub 发布页](https://github.com/Mr-Goodname/tantan-desktop-pet-next/releases) 查看和下载，不在程序中保存 GitHub 令牌。
 
 程序不在后台定时检查，不自动下载、安装或覆盖文件。音频、素材和自定义对话不会随更新检查上传。
 
@@ -52,7 +62,7 @@ v0.4.1 修复了气泡后台预热后，首次显示长台词时仍沿用旧窗�
 
 ## 漂浮运动与显示
 
-漂浮运动支持当前屏幕范围内的平面自由旋转和边界反弹，可启用或关闭移动、旋转速度衰减。随机推进可以手动触发，也可以每隔 3–120 秒自动触发。关闭漂浮后立即停住并恢复正向，仍可音频律动。
+漂浮运动支持当前屏幕范围内的平面自由旋转和边界反弹，可启用或关闭移动、旋转速度衰减。随机推进可以手动触发，也可以每隔 3–120 秒自动触发。启用随机速度后，每次推进在 25 px/s 至所选速度上限之间选择；关闭时使用所选固定速度。关闭漂浮后立即停住并恢复正向，仍可音频律动并作为其他角色的碰撞障碍。
 
 拖动可以跨屏，松手后在当前屏幕内运动。速度滑块调整随机推进速度；甩出速度根据最近 90 毫秒的鼠标轨迹计算。
 
@@ -77,6 +87,7 @@ v0.4.1 修复了气泡后台预热后，首次显示长台词时仍沿用旧窗�
 数据保存在 `%LOCALAPPDATA%\BonbonPet`：
 
 - `settings.json`：显示、音频、运动、对话字体，以及可编辑的预置和自定义对话。
+- `profiles.json`：所有角色的独立设置、名称、素材路径和位置；第一次升级从原 `settings.json` 迁移一个角色，同时保留主角色的兼容设置文件。
 - `Characters`：导入的角色素材。
 - `Sounds`：导入的音效。
 
@@ -95,6 +106,8 @@ v0.4.1 修复了气泡后台预热后，首次显示长台词时仍沿用旧窗�
 .\tools\build.ps1 run --project Tests\Sounds\BonbonPet.SoundTests.csproj -c Release
 .\tools\build.ps1 run --project Tests\Bubble\BonbonPet.BubbleTests.csproj -c Release
 .\tools\build.ps1 run --project Tests\Updates\BonbonPet.UpdateTests.csproj -c Release
+.\tools\build.ps1 run --project Tests\Profiles\BonbonPet.ProfileTests.csproj -c Release
+.\tools\build.ps1 run --project Tests\Collisions\BonbonPet.CollisionTests.csproj -c Release
 .\tools\build.ps1 run --project tools\SpriteProbe\SpriteProbe.csproj -c Release
 .\tools\build.ps1 run --project Tests\Audio\AudioCheck.csproj -c Release -- artifacts\audio-result.json
 ```

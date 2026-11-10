@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using BonbonPet.Controls;
@@ -30,7 +31,11 @@ internal static class SmokeTest
             Require(original.IsAnimated && original.Frames.Count == 27, "original GIF keeps 27 animated frames", checks);
             Require(pet.CurrentFrame.PixelWidth <= 512 && pet.CurrentFrame.PixelHeight <= 512, "default sprite resolution bounded", checks);
             pet.ShowSettings(); await Task.Delay(250);
-            Require(pet.Title == "弹弹桌宠 · Tantan" && pet.SettingsPanel!.Title == "弹弹桌宠 · Tantan · 设置", "application and settings use updated name", checks);
+            double windowScale = DesktopService.GetWindowScale(new WindowInteropHelper(pet).Handle);
+            Require(pet.Title == $"弹弹桌宠 · Tantan · {pet.Settings.InstanceName}" &&
+                pet.SettingsPanel!.Title == $"弹弹桌宠 · Tantan · {pet.Settings.InstanceName} · 设置", "application and settings identify the selected Tantan character", checks);
+            if (pet.Coordinator is not null)
+                Require(MultiPetSmokeTest.IsSelectorBoundAndVisible(pet, 1), "the initial character selector renders its name and binds the selected window", checks);
             Snapshot((FrameworkElement)pet.SettingsPanel!.Content, Path.Combine(output, "settings.png"));
             var sounds = (System.Windows.Controls.ComboBox)pet.SettingsPanel.FindName("SoundCombo");
             sounds.SelectedIndex = 1; Require(pet.Settings.SqueakSound == (AudioService.HasDuckAssets ? "duck" : "original"), "duck selection uses supplied assets or synthesized fallback", checks);
@@ -72,7 +77,8 @@ internal static class SmokeTest
             Require(Math.Abs(pet.Physics.Angle) > .01, "physics rotates pet", checks);
             pet.Settings.PhysicsEnabled = false; pet.ApplySettings();
             Require(pet.Physics.Angle == 0 && pet.Physics.VelocityX == 0 && pet.Physics.VelocityY == 0, "fixed mode stops and stands upright", checks);
-            pet.Settings.Size = 320; pet.ApplySettings(); await Task.Delay(100);
+            var characterSize = (System.Windows.Controls.Slider)pet.SettingsPanel.FindName("SizeSlider");
+            characterSize.Value = 320; await Task.Delay(100);
             Require(Math.Abs(image.ActualHeight - 320) < 1, "size slider resizes sprite preserving aspect ratio", checks);
             pet.SayRandom(); await Task.Delay(100);
             Require(pet.BubblePanel.IsVisible, "random dialogue displays actual thought bubble", checks);
@@ -107,6 +113,44 @@ internal static class SmokeTest
             await Task.Delay(80);
             Require(pet.BubblePanel.FontFamily.Source == "Arial" && pet.BubblePanel.CurrentFontSize == 24, "font and size controls update the visible bubble", checks);
             Snapshot((FrameworkElement)pet.BubblePanel.Content, Path.Combine(output, "bubble-large.png"));
+            presets.Text = "耶！"; custom.Text = ""; pet.SayRandom();
+            characterSize.Value = 220;
+            var bubbleScale = (System.Windows.Controls.Slider)pet.SettingsPanel.FindName("BubbleScaleSlider");
+            var fontSize = (System.Windows.Controls.Slider)pet.SettingsPanel.FindName("FontSizeSlider");
+            bubbleScale.Value = 1; fontSize.Value = 16;
+            await Task.Delay(80);
+            double bubbleWidth = pet.BubblePanel.Width - 4;
+            characterSize.Value = 330; await Task.Delay(80);
+            Require(Math.Abs(pet.BubblePanel.CurrentFontSize - 24) < .01 && Math.Abs(fontSize.Value - 24) < .01 &&
+                Math.Abs((pet.BubblePanel.Width - 4) / bubbleWidth - 1.5) < .02,
+                "character resize synchronizes whole bubble, actual font and font slider", checks);
+            bubbleScale.Value = 1.5; await Task.Delay(80);
+            Require(Math.Abs(pet.BubblePanel.CurrentFontSize - 36) < .01 && Math.Abs(fontSize.Value - 36) < .01 &&
+                Math.Abs(pet.BubblePanel.RequestedVisualScale - 2.25) < .01,
+                "separate bubble resize scales artwork and synchronizes font size", checks);
+            var fontWeight = (System.Windows.Controls.ComboBox)pet.SettingsPanel.FindName("FontWeightCombo");
+            fontWeight.SelectedItem = fontWeight.Items.OfType<System.Windows.Controls.ComboBoxItem>().First(item => (string)item.Tag == "700");
+            Require(pet.BubblePanel.CurrentFontWeight == 700 && pet.Settings.BubbleFontWeight == 700,
+                "font weight control updates the visible bubble and saved preference", checks);
+            characterSize.Value = 480; bubbleScale.Value = 2; fontSize.Value = fontSize.Maximum;
+            presets.Text = new string('耶', 110); pet.SayRandom(); await Task.Delay(100);
+            var screen = System.Windows.Forms.Screen.FromPoint(new System.Drawing.Point((int)pet.Physics.X, (int)pet.Physics.Y)).WorkingArea;
+            Require(pet.BubblePanel.ActualWidth * windowScale <= screen.Width && pet.BubblePanel.ActualHeight * windowScale <= screen.Height,
+                "largest character, bubble and long phrase remain fitted within the monitor", checks);
+            Snapshot((FrameworkElement)pet.BubblePanel.Content, Path.Combine(output, "bubble-fitted.png"));
+            characterSize.Value = 220; bubbleScale.Value = 1; fontSize.Value = 24;
+            presets.Text = "昨日一去不复回";
+            var randomSpeed = (System.Windows.Controls.CheckBox)pet.SettingsPanel.FindName("RandomSpeedCheck");
+            var speed = (System.Windows.Controls.Slider)pet.SettingsPanel.FindName("SpeedSlider");
+            speed.Value = 400; randomSpeed.IsChecked = true;
+            var kicks = new List<double>();
+            for (int i = 0; i < 30; i++) { pet.Kick(); kicks.Add(Math.Sqrt(pet.Physics.VelocityX * pet.Physics.VelocityX + pet.Physics.VelocityY * pet.Physics.VelocityY) / windowScale); }
+            Require(kicks.All(value => value >= 25 && value <= 400) && kicks.Select(value => Math.Round(value)).Distinct().Count() > 10,
+                "random-speed option varies each kick within the selected upper bound", checks);
+            randomSpeed.IsChecked = false; pet.Kick();
+            Require(Math.Abs(Math.Sqrt(pet.Physics.VelocityX * pet.Physics.VelocityX + pet.Physics.VelocityY * pet.Physics.VelocityY) / windowScale - 400) < .01,
+                "disabling random speed restores the selected fixed kick magnitude", checks);
+            pet.Settings.PhysicsEnabled = false; pet.ApplySettings(); pet.SettingsPanel.Reload();
             custom.Text = "哦！";
             Require(PhraseBook.GetPhrases(pet.Settings).SequenceEqual(new[] { "昨日一去不复回", "哦！" }), "custom dialogue remains mixed with edited presets", checks);
             presets.Text = ""; custom.Text = ""; pet.SayRandom();
@@ -132,6 +176,7 @@ internal static class SmokeTest
             Snapshot((FrameworkElement)pet.Content, Path.Combine(output, "pet.png"));
             pet.Settings.Size = 220; pet.ApplySettings(); pet.SettingsPanel.Reload(); await Task.Delay(100);
             Snapshot((FrameworkElement)pet.SettingsPanel.Content, Path.Combine(output, "settings.png"));
+            if (pet.Coordinator is not null) checks.AddRange(await MultiPetSmokeTest.Run(pet.Coordinator, output));
             File.WriteAllText(Path.Combine(output, "smoke-result.json"), JsonSerializer.Serialize(new { passed = true, checks, dialogueEditP95Ms, dialogueEditMaxMs, memoryMB = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / 1048576.0 }, new JsonSerializerOptions { WriteIndented = true }));
             pet.Exit();
         }

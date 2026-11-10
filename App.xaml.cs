@@ -10,6 +10,7 @@ namespace BonbonPet;
 public partial class App : System.Windows.Application
 {
     private Mutex? _singleInstance;
+    private PetCoordinator? _coordinator;
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -23,15 +24,16 @@ public partial class App : System.Windows.Application
         }
         try
         {
-            var settings = test ? new PetSettings { HideOnFullscreen = false } : PetSettings.Load();
-            bool first = settings.FirstRun; settings.FirstRun = false;
-            var pet = new PetWindow(settings, test); MainWindow = pet; pet.Show();
+            var profiles = test ? new System.Collections.Generic.List<PetSettings> { new() { HideOnFullscreen = false } } : PetProfiles.Load();
+            bool first = profiles[0].FirstRun;
+            _coordinator = new PetCoordinator(test);
+            var pet = _coordinator.Start(profiles); MainWindow = pet;
             if (benchmark) _ = Benchmark.Run(pet, e.Args.SkipWhile(x => x != "--benchmark").Skip(1).FirstOrDefault());
             else if (test) _ = SmokeTest.Run(pet, e.Args.SkipWhile(x => x != "--self-test").Skip(1).FirstOrDefault());
             else if (first || e.Args.Contains("--settings")) pet.ShowSettings();
         }
         catch (Exception ex) { Log(ex); MessageBox.Show("启动失败：\n" + ex.Message, "弹弹桌宠"); Shutdown(1); }
     }
-    protected override void OnExit(ExitEventArgs e) { if (MainWindow is PetWindow pet) pet.Dispose(); _singleInstance?.Dispose(); base.OnExit(e); }
+    protected override void OnExit(ExitEventArgs e) { _coordinator?.Dispose(); if (_coordinator is null && MainWindow is PetWindow pet) pet.Dispose(); _singleInstance?.Dispose(); base.OnExit(e); }
     internal static void Log(Exception ex) { try { Directory.CreateDirectory(PetSettings.DataDirectory); File.AppendAllText(Path.Combine(PetSettings.DataDirectory, "error.log"), DateTimeOffset.Now + " " + ex + Environment.NewLine); } catch { } }
 }

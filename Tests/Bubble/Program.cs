@@ -11,26 +11,20 @@ using BonbonPet;
 internal static class Program
 {
     private static int _checks;
+    private static double _maximumNativeSizeDifference;
     [STAThread]
     private static void Main(string[] args)
     {
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
-        foreach (double size in new[] { 13.5, 24d, 32d })
-        foreach (string phrase in new[] { "也让我懂得了，要珍惜朋友的肩膀", "昨日一去不复回，开心比什么都贵" })
+        string longPhrase = string.Concat(Enumerable.Repeat("朋友一起慢慢向前走，开心比什么都贵。", 8)).Substring(0, 110);
+        foreach (double size in new[] { 10d, 13.5, 32d })
+        foreach (double visualScale in new[] { .2, 1d, 5d })
         {
             var first = new BubbleWindow();
-            first.Prepare(); first.SetAppearance("Arial", size); first.Left = first.Top = -10000;
-            first.Say(phrase); first.UpdateLayout();
-            first.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
-            var surface = (FrameworkElement)first.Content;
-            var clip = LayoutInformation.GetLayoutClip(surface);
-            var ink = VisualTreeHelper.GetContentBounds(surface);
-            Check(clip == null || clip.Bounds.Contains(ink),
-                $"First show has a stale clip: font {size}, clip {clip?.Bounds}, ink {ink}", false);
-            Check(GetClientRect(new WindowInteropHelper(first).Handle, out var client), "Get first-show client bounds", false);
-            double scale = GetDpiForWindow(new WindowInteropHelper(first).Handle) / 96d;
-            Check(client.Right + 1 >= ink.Right * scale && client.Bottom + 1 >= ink.Bottom * scale,
-                $"First-show HWND clips geometry: native {client.Right}x{client.Bottom}, ink {ink}", false);
+            first.Prepare(); first.SetAppearance("Arial", size, visualScale, 900);
+            first.FitToBounds(1400, 900); first.Left = first.Top = -10000;
+            first.Say(longPhrase);
+            Validate(first, $"first show {size}/{visualScale}/900");
             first.Close();
         }
         var bubble = new BubbleWindow();
@@ -51,31 +45,100 @@ internal static class Program
         Check(bubble.ActualHeight > shortHeight, "Bubble grows to fit wrapped text");
         Check(GetForegroundWindow() == foreground, "Showing text does not steal activation");
         Snapshot((FrameworkElement)bubble.Content, Path.Combine(output, "bubble-long.png"));
-        double maximumNativeSizeDifference = 0;
-        foreach (string font in new[] { "Microsoft YaHei UI", "Arial", "Times New Roman" })
-        foreach (double size in new[] { 10d, 13.5, 24, 32 })
-        foreach (string phrase in new[] { "耶！", "昨日一去不复回，开心比什么都贵", "人生几十年，总会有风雨来陪。\n潇潇洒洒赴会，今不醉不归。\n阳光总会在风雨之后撒向苍茫。" })
+        // Scaling must apply to the text, strokes, body and dots together.
+        bubble.SetAppearance("Microsoft YaHei UI", 13.5, 1, 400); bubble.Say("耶！");
+        double naturalWidth = bubble.ActualWidth - 4, naturalHeight = bubble.ActualHeight - 4;
+        foreach (double visualScale in new[] { .2, .5, 1d, 2.5, 5d })
         {
-            bubble.SetAppearance(font, size); bubble.Say(phrase); bubble.UpdateLayout();
-            bubble.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
-            var content = (FrameworkElement)bubble.Content;
-            var hwnd = new WindowInteropHelper(bubble).Handle;
-            Check(GetClientRect(hwnd, out var client), "Get native client dimensions", false);
-            double scale = GetDpiForWindow(hwnd) / 96d;
-            maximumNativeSizeDifference = Math.Max(maximumNativeSizeDifference,
-                Math.Max(Math.Abs(client.Right - content.ActualWidth * scale), Math.Abs(client.Bottom - content.ActualHeight * scale)));
-            Check(client.Right + 1 >= content.ActualWidth * scale && client.Bottom + 1 >= content.ActualHeight * scale,
-                $"Window clips content at {font}/{size}: native {client.Right}x{client.Bottom}, content {content.ActualWidth * scale}x{content.ActualHeight * scale}", false);
-            var target = new RenderTargetBitmap(client.Right, client.Bottom, 96 * scale, 96 * scale, PixelFormats.Pbgra32);
-            target.Render(content);
-            var pixels = new byte[client.Right * client.Bottom * 4]; target.CopyPixels(pixels, client.Right * 4, 0);
-            bool edgeInk = false;
-            for (int x = 0; x < client.Right; x++) edgeInk |= pixels[x * 4 + 3] != 0 || pixels[((client.Bottom - 1) * client.Right + x) * 4 + 3] != 0;
-            for (int y = 0; y < client.Bottom; y++) edgeInk |= pixels[(y * client.Right) * 4 + 3] != 0 || pixels[(y * client.Right + client.Right - 1) * 4 + 3] != 0;
-            Check(!edgeInk, $"Shape reaches the native clipping edge at {font}/{size}", false);
+            bubble.SetAppearance("Microsoft YaHei UI", 13.5, visualScale, 400);
+            Validate(bubble, $"uniform scale {visualScale}");
+            Check(Math.Abs((bubble.ActualWidth - 4) - naturalWidth * visualScale) <= visualScale + 1 &&
+                Math.Abs((bubble.ActualHeight - 4) - naturalHeight * visualScale) <= visualScale + 1,
+                $"Whole visual scales at {visualScale}, including measured strokes and dots", false);
+            Check(Math.Abs(bubble.CurrentFontSize - 13.5 * visualScale) < .0001,
+                $"Effective font size scales at {visualScale}", false);
         }
+        Snapshot((FrameworkElement)bubble.Content, Path.Combine(output, "bubble-scaled-large.png"));
+        bubble.FitToBounds(1400, 900);
+        int phraseIndex = 0;
+        foreach (string font in new[] { "Microsoft YaHei UI", "Arial", "Times New Roman", "DFHanziPenW5-A", "FZMiaoWuS GB" }
+            .Where(name => Fonts.SystemFontFamilies.Any(font => string.Equals(font.Source, name, StringComparison.OrdinalIgnoreCase))))
+        foreach (double size in new[] { 10d, 13.5, 24, 32 })
+        foreach (int weight in new[] { 100, 400, 900 })
+        foreach (double visualScale in new[] { .2, .5, 1d, 2.5, 5d })
+        {
+            string phrase = new[] { "耶！", "昨日一去不复回，开心比什么都贵", longPhrase }[phraseIndex++ % 3];
+            // Appearance changes while visible exercise the live font/weight
+            // path before Say also changes the measured text dimensions.
+            bubble.SetAppearance(font, size, visualScale, weight);
+            bubble.Say(phrase);
+            Validate(bubble, $"{font}/{size}/{visualScale}/{weight}/{phrase.Length}");
+            Check(bubble.CurrentFontWeight == weight, "Live font weight is applied", false);
+            Check(bubble.CurrentVisualScale <= visualScale && bubble.ActualWidth <= 1401 && bubble.ActualHeight <= 901,
+                $"Oversized visual is uniformly fitted to the available screen: {font}/{size}/{visualScale}/{weight}, effective {bubble.CurrentVisualScale}, window {bubble.ActualWidth}x{bubble.ActualHeight}", false);
+        }
+        // A hidden HWND must not retain the old clipping rectangle when the
+        // next bubble goes from tiny/light/short to huge/heavy/110 characters.
+        foreach (double visualScale in new[] { 5d, .2, 2.5, .5 })
+        {
+            bubble.Hide(); bubble.SetAppearance("Times New Roman", visualScale > 1 ? 32 : 10, visualScale, visualScale > 1 ? 900 : 100);
+            Check(!bubble.IsVisible, "Hidden appearance changes do not show the bubble", false);
+            bubble.Say(visualScale > 1 ? longPhrase : "哦！");
+            Validate(bubble, $"hidden resize {visualScale}");
+        }
+        Snapshot((FrameworkElement)bubble.Content, Path.Combine(output, "bubble-scaled-small.png"));
+        bubble.SetAppearance("Arial", 32, 5, 900); bubble.Say(longPhrase);
+        bubble.FitToBounds(420, 280); Validate(bubble, "small monitor fitting");
+        Check(bubble.ActualWidth <= 421 && bubble.ActualHeight <= 281 && bubble.CurrentVisualScale < 5,
+            "Long large text fits a smaller display without cutting any ink");
+        double constrainedScale = bubble.CurrentVisualScale;
+        bubble.FitToBounds(1400, 900); Validate(bubble, "larger monitor fitting");
+        Check(bubble.CurrentVisualScale > constrainedScale && bubble.RequestedVisualScale == 5,
+            "Moving to a larger display restores the requested scale as space permits");
+        bubble.SetAppearance("Microsoft YaHei UI", 32, 5, 900);
+        bubble.Say(new string('耶', 110));
+        bubble.FitToBounds(420, 900); Validate(bubble, "110 repeated large characters stay within paper");
+        Snapshot((FrameworkElement)bubble.Content, Path.Combine(output, "bubble-fitted.png"));
         bubble.Close(); app.Shutdown();
-        Console.WriteLine($"{_checks} bubble checks passed; native size difference at most {maximumNativeSizeDifference:F3}px. Preview: " + output);
+        Console.WriteLine($"{_checks} bubble checks passed; native size difference at most {_maximumNativeSizeDifference:F3}px. Preview: " + output);
+    }
+    private static void Validate(BubbleWindow bubble, string scenario)
+    {
+        bubble.UpdateLayout(); bubble.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+        var content = (FrameworkElement)bubble.Content;
+        var surface = (FrameworkElement)((System.Windows.Controls.Border)content).Child;
+        var nativeHandle = new WindowInteropHelper(bubble).Handle;
+        Check(GetClientRect(nativeHandle, out var client), "Get native client dimensions", false);
+        double dpiScale = GetDpiForWindow(nativeHandle) / 96d;
+        var ink = VisualTreeHelper.GetDescendantBounds(content);
+        Check(!ink.IsEmpty && ink.Left >= 1 && ink.Top >= 1 &&
+            ink.Right <= client.Right / dpiScale - 1 && ink.Bottom <= client.Bottom / dpiScale - 1,
+            $"Native HWND clips descendant ink in {scenario}: {client.Right}x{client.Bottom}, ink {ink}", false);
+        var surfaceInk = VisualTreeHelper.GetDescendantBounds(surface);
+        var thoughtSurface = (ThoughtBubbleSurface)surface;
+        Check(thoughtSurface.ContainsTextBounds(thoughtSurface.TextLayoutBounds),
+            $"Text layout rectangle escapes the paper fill in {scenario}: {thoughtSurface.TextLayoutBounds}", false);
+        var textInk = VisualTreeHelper.GetDescendantBounds(thoughtSurface.Child);
+        if (!textInk.IsEmpty)
+        {
+            var textInkOnPaper = thoughtSurface.Child.TransformToAncestor(thoughtSurface).TransformBounds(textInk);
+            Check(thoughtSurface.ContainsTextBounds(textInkOnPaper),
+                $"Actual glyph ink escapes the paper fill in {scenario}: {textInkOnPaper}", false);
+        }
+        var clip = LayoutInformation.GetLayoutClip(surface);
+        Check(clip == null || clip.Bounds.Contains(surfaceInk),
+            $"WPF retains a stale child clip in {scenario}: clip {clip?.Bounds}, ink {surfaceInk}, actual {surface.ActualWidth}x{surface.ActualHeight}, natural {((ThoughtBubbleSurface)surface).NaturalSize}, scale {bubble.CurrentVisualScale}, HWND {client.Right}x{client.Bottom}, window {bubble.Width}x{bubble.Height} actual {bubble.ActualWidth}x{bubble.ActualHeight}, host {content.ActualWidth}x{content.ActualHeight} desired {content.DesiredSize}", false);
+        _maximumNativeSizeDifference = Math.Max(_maximumNativeSizeDifference,
+            Math.Max(Math.Abs(client.Right - content.ActualWidth * dpiScale), Math.Abs(client.Bottom - content.ActualHeight * dpiScale)));
+        Check(client.Right + 1 >= content.ActualWidth * dpiScale && client.Bottom + 1 >= content.ActualHeight * dpiScale,
+            $"Native HWND clips the layout size in {scenario}", false);
+        var target = new RenderTargetBitmap(client.Right, client.Bottom, 96 * dpiScale, 96 * dpiScale, PixelFormats.Pbgra32);
+        target.Render(content);
+        var pixels = new byte[client.Right * client.Bottom * 4]; target.CopyPixels(pixels, client.Right * 4, 0);
+        bool edgeInk = false;
+        for (int x = 0; x < client.Right; x++) edgeInk |= pixels[x * 4 + 3] != 0 || pixels[((client.Bottom - 1) * client.Right + x) * 4 + 3] != 0;
+        for (int y = 0; y < client.Bottom; y++) edgeInk |= pixels[(y * client.Right) * 4 + 3] != 0 || pixels[(y * client.Right + client.Right - 1) * 4 + 3] != 0;
+        Check(!edgeInk, $"Rendered ink touches a native clipping edge in {scenario}", false);
     }
     private static void Check(bool pass, string message, bool log = true) { if (!pass) throw new Exception(message); _checks++; if (log) Console.WriteLine("PASS: " + message); }
     private static void Snapshot(FrameworkElement visual, string path)

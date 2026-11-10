@@ -21,6 +21,7 @@ public sealed class AudioService : IDisposable
     private readonly object _captureGate = new();
     private readonly object _squeakGate = new();
     private readonly Timer _monitor;
+    private readonly AudioService? _sharedMeter;
     private WasapiLoopbackCapture? _capture;
     private MMDevice? _device;
     private string? _deviceId;
@@ -50,9 +51,9 @@ public sealed class AudioService : IDisposable
     private long _nextDeviceCheck;
     private int _inMonitor;
 
-    public float Level => _enabled ? _level : 0;
-    public string Status => _status;
-    public bool IsRunning => _running;
+    public float Level => _enabled ? (_sharedMeter?.Level ?? _level) : 0;
+    public string Status => _enabled && _sharedMeter is not null ? _sharedMeter.Status : _status;
+    public bool IsRunning => _sharedMeter is null ? _running : _enabled && _sharedMeter.IsRunning;
     public bool IsSoundReady => !_disposed && _soundActive && _squeakPlayer is not null;
     public static bool HasDuckAssets => File.Exists(Path.Combine(AppContext.BaseDirectory, "Assets", "Sounds", "Ya1.mp3"))
         && File.Exists(Path.Combine(AppContext.BaseDirectory, "Assets", "Sounds", "Ya2.mp3"));
@@ -64,11 +65,14 @@ public sealed class AudioService : IDisposable
         set => _squeakVolume = float.IsFinite(value) ? Math.Clamp(value, 0f, 1f) : .45f;
     }
 
-    public AudioService() : this(true) { }
+    public AudioService() : this(true, null) { }
+    internal AudioService(AudioService sharedMeter) : this(true, sharedMeter) { }
 
     // Offline sound tests can exercise the real stream without opening a speaker.
-    internal AudioService(bool prepareOutput)
+    internal AudioService(bool prepareOutput) : this(prepareOutput, null) { }
+    private AudioService(bool prepareOutput, AudioService? sharedMeter)
     {
+        _sharedMeter = sharedMeter;
         // A 25 Hz meter is sufficient for a desktop animation. The audio thread
         // only calculates a meter and does no UI work.
         _monitor = new Timer(Monitor, null, 40, 40);
@@ -93,6 +97,7 @@ public sealed class AudioService : IDisposable
 
     public void Start()
     {
+        if (_sharedMeter is not null) { _enabled = true; return; }
         lock (_captureGate)
         {
             if (_disposed) return;
@@ -105,6 +110,7 @@ public sealed class AudioService : IDisposable
 
     public void Stop()
     {
+        if (_sharedMeter is not null) { _enabled = false; SetStatus("音频律动已关闭"); return; }
         lock (_captureGate)
         {
             _enabled = false;
@@ -196,6 +202,8 @@ public sealed class AudioService : IDisposable
         int pendingSamples = _squeakProvider.Enqueue(samples, volume, releasePart);
         Interlocked.Exchange(ref _ignoreUntilTick,
             Environment.TickCount64 + (long)Math.Ceiling(pendingSamples * 1000.0 / 44100) + 195);
+        if (_sharedMeter is not null)
+            Interlocked.Exchange(ref _sharedMeter._ignoreUntilTick, Interlocked.Read(ref _ignoreUntilTick));
         if (_squeakPlayer is null) RequestOutputUpdate();
     }
 
@@ -285,6 +293,7 @@ public sealed class AudioService : IDisposable
         {
             var now = Environment.TickCount64;
             MonitorOutput(now);
+            if (_sharedMeter is not null) return;
             var ignoreUntil = Interlocked.Read(ref _ignoreUntilTick);
             var target = _enabled && (now < ignoreUntil || now - Interlocked.Read(ref _lastAudioTick) < 240)
                 ? _rawLevel : 0;

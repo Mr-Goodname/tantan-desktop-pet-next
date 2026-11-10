@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - name: Build public source
+      - name: Build source
         run: dotnet build BonbonPet.csproj -c Release
       - name: Run offline regression checks
         shell: pwsh
@@ -24,7 +24,9 @@ jobs:
             'Tests/Outline/BonbonPet.OutlineTests.csproj',
             'Tests/Bubble/BonbonPet.BubbleTests.csproj',
             'Tests/Sounds/BonbonPet.SoundTests.csproj',
-            'Tests/Updates/BonbonPet.UpdateTests.csproj'
+            'Tests/Updates/BonbonPet.UpdateTests.csproj',
+            'Tests/Profiles/BonbonPet.ProfileTests.csproj',
+            'Tests/Collisions/BonbonPet.CollisionTests.csproj'
           )
           foreach ($projectPath in $projects) {
             dotnet run --project $projectPath -c Release

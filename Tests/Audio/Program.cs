@@ -44,6 +44,7 @@ audio.Start();
 Thread.Sleep(300);
 var restarts = audio.IsRunning;
 audio.Stop();
+var sharedCaptureChecks = CheckSharedCapture();
 
 var result = new
 {
@@ -63,13 +64,28 @@ var result = new
     FeedbackCheck = "During the squeak, the public meter converges monotonically to its held music value; ongoing system audio is not muted.",
     StopsAndClearsMeter = stopsAndClearsMeter,
     Restarts = restarts,
+    SharedCaptureChecks = sharedCaptureChecks,
     PlaybackError = playbackError
 };
 var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
 File.WriteAllText(outputPath, json);
 Console.WriteLine(json);
-Environment.ExitCode = result.PlaybackDetected && result.SqueakFeedbackSuppressed && formatChecks.AllPassed && stopsAndClearsMeter && restarts ? 0 : 1;
+Environment.ExitCode = result.PlaybackDetected && result.SqueakFeedbackSuppressed && formatChecks.AllPassed && stopsAndClearsMeter && restarts && sharedCaptureChecks ? 0 : 1;
+
+static bool CheckSharedCapture()
+{
+    using var meter = new AudioService(false);
+    var first = new AudioService(meter);
+    using var second = new AudioService(meter);
+    first.Start(); second.Start(); meter.Start();
+    Thread.Sleep(250);
+    bool sharedStarted = meter.IsRunning && first.IsRunning && second.IsRunning;
+    first.Stop(); first.Dispose();
+    bool survivesRemoval = meter.IsRunning && second.IsRunning;
+    meter.Stop();
+    return sharedStarted && survivesRemoval && !second.IsRunning && second.Level == 0;
+}
 
 static float Measure(AudioService audio, int milliseconds)
 {

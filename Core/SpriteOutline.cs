@@ -95,6 +95,30 @@ public sealed class SpriteOutline
         return new Rect(minX, minY, maxX - minX, maxY - minY);
     }
 
+    /// <summary>Copies the visible convex hull into a reusable world-pixel buffer.</summary>
+    public int CopyVertices(Span<Point> destination, double displayWidth, double displayHeight, double scaleX,
+        double scaleY, double angleDegrees, double bobY, double worldScale, double centerX, double centerY)
+    {
+        if (IsEmpty || !double.IsFinite(displayWidth) || !double.IsFinite(displayHeight) ||
+            displayWidth <= 0 || displayHeight <= 0 || !double.IsFinite(worldScale) || worldScale <= 0 ||
+            !double.IsFinite(centerX) || !double.IsFinite(centerY)) return 0;
+        if (destination.Length < _vertices.Length) throw new ArgumentException("The hull buffer is too small.", nameof(destination));
+        if (!double.IsFinite(scaleX)) scaleX = 1;
+        if (!double.IsFinite(scaleY)) scaleY = 1;
+        if (!double.IsFinite(angleDegrees)) angleDegrees = 0;
+        if (!double.IsFinite(bobY)) bobY = 0;
+        double fit = Math.Min(displayWidth / _dipWidth, displayHeight / _dipHeight);
+        double fx = fit * _dipWidth / _width * scaleX, fy = fit * _dipHeight / _height * scaleY;
+        var (sin, cos) = Math.SinCos(angleDegrees * Math.PI / 180);
+        for (int i = 0; i < _vertices.Length; i++)
+        {
+            double x = _vertices[i].X * fx, y = _vertices[i].Y * fy;
+            destination[i] = new Point(centerX + (x * cos - y * sin) * worldScale,
+                centerY + (x * sin + y * cos + bobY) * worldScale);
+        }
+        return _vertices.Length;
+    }
+
     private static Point[] BuildHull(List<Point> points)
     {
         if (points.Count == 0) return Array.Empty<Point>();

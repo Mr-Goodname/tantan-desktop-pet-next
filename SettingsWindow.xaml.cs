@@ -17,10 +17,11 @@ namespace BonbonPet;
 public partial class SettingsWindow : Window
 {
     private readonly PetWindow _pet;
-    private readonly UpdateService _updates = new("Mr-Goodname", "tantan-desktop-pet");
+    private readonly UpdateService _updates = new("Mr-Goodname", "tantan-desktop-pet-next");
     private CancellationTokenSource? _updateCancellation;
     private Uri? _latestReleasePage;
-    private readonly FontFamily[] _fonts = Fonts.SystemFontFamilies.OrderBy(font => font.Source, StringComparer.CurrentCultureIgnoreCase).ToArray();
+    private static readonly FontFamily[] _fonts = Fonts.SystemFontFamilies.OrderBy(font => font.Source, StringComparer.CurrentCultureIgnoreCase).ToArray();
+    private bool _refreshingInstances;
     private bool _ready;
     public SettingsWindow(PetWindow pet)
     {
@@ -39,34 +40,113 @@ public partial class SettingsWindow : Window
     {
         _ready = false;
         var s = _pet.Settings;
+        InstanceNameBox.Text = s.InstanceName;
         AudioCheck.IsChecked = s.AudioEnabled; SensitivitySlider.Value = s.Sensitivity; VolumeSlider.Value = s.SqueakVolume;
         SqueezeSlider.Value = s.SqueezeStrength;
         SoundCombo.SelectedIndex = s.SqueakSound == "duck" ? 1 : s.SqueakSound == "custom" ? 2 : 0;
         CustomSoundText.Text = s.CustomSoundPath == null ? "未导入自定义音效" : "自定义音效：" + Path.GetFileName(s.CustomSoundPath);
         SizeSlider.Value = s.Size; TopmostCheck.IsChecked = s.Topmost; FullscreenCheck.IsChecked = s.HideOnFullscreen;
         PhysicsCheck.IsChecked = s.PhysicsEnabled; DecayCheck.IsChecked = s.Decay; SpeedSlider.Value = s.Speed;
+        RandomSpeedCheck.IsChecked = s.RandomKickSpeed;
         AutoKickCheck.IsChecked = s.AutoKick; KickSlider.Value = s.KickInterval; BubblesCheck.IsChecked = s.BubblesEnabled;
         BubbleSlider.Value = s.BubbleInterval; PhrasesBox.Text = s.CustomPhrases;
         PresetPhrasesBox.Text = s.PresetPhrases ?? PhraseBook.DefaultPresetText;
         FontCombo.SelectedItem = FindFont(s.BubbleFontFamily);
         FontCombo.Text = s.BubbleFontFamily;
-        FontSizeSlider.Value = s.BubbleFontSize;
+        BubbleScaleSlider.Value = s.BubbleScale;
+        FontWeightCombo.SelectedItem = FontWeightCombo.Items.OfType<ComboBoxItem>()
+            .OrderBy(item => Math.Abs(int.Parse((string)item.Tag) - s.BubbleFontWeight)).First();
+        SyncFontSizeSlider();
         FpsCombo.SelectedIndex = s.Fps == 20 ? 0 : s.Fps == 60 ? 2 : 1;
-        CharacterText.Text = s.CharacterPath == null ? "默认角色 GIF" : Path.GetFileName(s.CharacterPath);
+        CharacterText.Text = s.CharacterPath == null ? "默认角色 GIF · 哔哩哔哩 @疚刃" : Path.GetFileName(s.CharacterPath);
         PreviewImage.Source = _pet.CurrentFrame;
         Labels();
+        RefreshInstances();
         _ready = true;
     }
+    public void RefreshInstances()
+    {
+        _refreshingInstances = true;
+        try
+        {
+            Title = $"弹弹桌宠 · Tantan · {_pet.Settings.InstanceName} · 设置";
+            _pet.Title = $"弹弹桌宠 · Tantan · {_pet.Settings.InstanceName}";
+            if (_pet.Coordinator is null) { InstanceBar.Visibility = Visibility.Collapsed; return; }
+            // Windows are UIElements. Putting them directly in an ItemsControl
+            // makes WPF treat the window as visual content instead of displaying
+            // its name. Keep only the plain label in Content and identity in Tag.
+            var choices = _pet.Coordinator.Instances.Select(pet => new ComboBoxItem
+            {
+                Content = pet.Settings.InstanceName,
+                Tag = pet
+            }).ToArray();
+            InstanceCombo.ItemsSource = choices;
+            InstanceCombo.SelectedItem = choices.FirstOrDefault(item => ReferenceEquals(item.Tag, _pet));
+            CreateInstanceButton.IsEnabled = _pet.Coordinator.Instances.Count < PetProfiles.MaximumInstances;
+            RemoveInstanceButton.IsEnabled = _pet.Coordinator.Instances.Count > 1;
+        }
+        finally { _refreshingInstances = false; }
+    }
+    private void InstanceChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_refreshingInstances || !_ready || InstanceCombo.SelectedItem is not ComboBoxItem { Tag: PetWindow pet } || ReferenceEquals(pet, _pet)) return;
+        pet.ShowSettings(); Close();
+    }
+    private void CreateInstance_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pet.Coordinator is null) return;
+        try { var pet = _pet.Coordinator.AddInstance(_pet, showSettings: false); pet.ShowSettings(); Close(); }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "创建角色", MessageBoxButton.OK, MessageBoxImage.Information); }
+    }
+    private void RemoveInstance_Click(object sender, RoutedEventArgs e)
+    {
+        var coordinator = _pet.Coordinator;
+        if (coordinator is null || coordinator.Instances.Count <= 1) return;
+        var next = coordinator.Instances.First(pet => !ReferenceEquals(pet, _pet));
+        if (coordinator.RemoveInstance(_pet)) next.ShowSettings();
+    }
+    private void InstanceNameChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_ready) return;
+        _pet.Settings.InstanceName = string.IsNullOrWhiteSpace(InstanceNameBox.Text) ? "角色" : InstanceNameBox.Text.Trim();
+        _pet.Coordinator?.NotifyRosterChanged(); _pet.ScheduleSave();
+    }
+    private void ExitAll_Click(object sender, RoutedEventArgs e) => _pet.Exit();
     private void Labels()
     {
         SensitivityText.Text = $"{SensitivitySlider.Value:F1} ×"; VolumeText.Text = $"{VolumeSlider.Value:P0}";
         SqueezeText.Text = $"{SqueezeSlider.Value:F1} ×";
         SizeText.Text = $"{SizeSlider.Value:F0} px"; SpeedText.Text = $"{SpeedSlider.Value:F0} px/s";
+        SpeedLabel.Text = _pet.Settings.RandomKickSpeed ? "速度上限" : "推进速度";
+        SpeedHint.Text = _pet.Settings.RandomKickSpeed
+            ? $"每次在 25–{SpeedSlider.Value:F0} px/s 范围内随机选择速度。" : "每次按此速度推进，方向随机。";
         KickText.Text = $"{KickSlider.Value:F0} 秒"; BubbleText.Text = $"{BubbleSlider.Value:F0} 秒";
+        BubbleScaleText.Text = $"{BubbleScaleSlider.Value:P0}";
         FontSizeText.Text = $"{FontSizeSlider.Value:F1} px";
         PreviewPhrase.FontFamily = FindFont(_pet.Settings.BubbleFontFamily) ?? new FontFamily(PetSettings.DefaultBubbleFontFamily);
+        PreviewPhrase.FontWeight = FontWeight.FromOpenTypeWeight(_pet.Settings.BubbleFontWeight);
         PreviewPhrase.FontSize = FontSizeSlider.Value;
         PreviewPhrase.LineHeight = FontSizeSlider.Value * 1.55;
+    }
+    private double TotalBubbleScale => _pet.Settings.Size / 220d * _pet.Settings.BubbleScale;
+    private void SyncFontSizeSlider()
+    {
+        bool ready = _ready;
+        _ready = false;
+        try
+        {
+            double scale = TotalBubbleScale, minimum = 10 * scale, maximum = 32 * scale;
+            // Widen the current range before assigning its new limits, so WPF
+            // never coerces a valid value through an inverted range.
+            FontSizeSlider.Minimum = Math.Min(FontSizeSlider.Minimum, minimum);
+            FontSizeSlider.Maximum = maximum;
+            FontSizeSlider.Minimum = minimum;
+            FontSizeSlider.TickFrequency = .5 * scale;
+            FontSizeSlider.SmallChange = .5 * scale;
+            FontSizeSlider.LargeChange = 2 * scale;
+            FontSizeSlider.Value = _pet.Settings.BubbleFontSize * scale;
+        }
+        finally { _ready = ready; }
     }
     private void Apply()
     {
@@ -76,11 +156,12 @@ public partial class SettingsWindow : Window
         s.SqueezeStrength = SqueezeSlider.Value;
         s.Size = SizeSlider.Value; s.Topmost = TopmostCheck.IsChecked == true; s.HideOnFullscreen = FullscreenCheck.IsChecked == true;
         s.PhysicsEnabled = PhysicsCheck.IsChecked == true; s.Decay = DecayCheck.IsChecked == true; s.Speed = SpeedSlider.Value;
+        s.RandomKickSpeed = RandomSpeedCheck.IsChecked == true;
         s.AutoKick = AutoKickCheck.IsChecked == true; s.KickInterval = KickSlider.Value; s.BubblesEnabled = BubblesCheck.IsChecked == true;
         s.BubbleInterval = BubbleSlider.Value;
-        s.BubbleFontSize = FontSizeSlider.Value;
+        s.BubbleScale = BubbleScaleSlider.Value;
         if (FpsCombo.SelectedItem is ComboBoxItem item) s.Fps = int.Parse((string)item.Tag);
-        Labels(); _pet.ApplySettings();
+        SyncFontSizeSlider(); Labels(); _pet.ApplySettings();
     }
     public void UpdatePreview(BitmapSource frame, float level, string status, double squashX, double squashY)
     {
@@ -93,6 +174,24 @@ public partial class SettingsWindow : Window
     public void ShowPhrase(string text) => PreviewPhrase.Text = text;
     private void ControlsChanged(object sender, RoutedEventArgs e) => Apply();
     private void SliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e) => Apply();
+    private void BubbleScaleChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!_ready) return;
+        _pet.Settings.BubbleScale = BubbleScaleSlider.Value;
+        SyncFontSizeSlider(); Labels(); _pet.ApplyBubbleAppearance();
+    }
+    private void FontSizeChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!_ready) return;
+        _pet.Settings.BubbleFontSize = Math.Clamp(FontSizeSlider.Value / TotalBubbleScale, 10, 32);
+        Labels(); _pet.ApplyBubbleAppearance();
+    }
+    private void FontWeightChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_ready || FontWeightCombo.SelectedItem is not ComboBoxItem item) return;
+        _pet.Settings.BubbleFontWeight = int.Parse((string)item.Tag);
+        Labels(); _pet.ApplyBubbleAppearance();
+    }
     private void FpsChanged(object sender, SelectionChangedEventArgs e) => Apply();
     private void SoundChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -129,7 +228,7 @@ public partial class SettingsWindow : Window
     private void SetBubbleFont(FontFamily? font)
     {
         if (!_ready || font == null || _pet.Settings.BubbleFontFamily == font.Source) return;
-        _pet.Settings.BubbleFontFamily = font.Source; Labels(); _pet.ApplySettings();
+        _pet.Settings.BubbleFontFamily = font.Source; Labels(); _pet.ApplyBubbleAppearance();
     }
     private void FontChanged(object sender, SelectionChangedEventArgs e) => SetBubbleFont(FontCombo.SelectedItem as FontFamily);
     private void FontTextChanged(object sender, TextChangedEventArgs e) => SetBubbleFont(FindFont(FontCombo.Text.Trim()));

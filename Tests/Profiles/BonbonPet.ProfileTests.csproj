@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Core/PetSettings.cs" Link="PetSettings.cs" />
+    <Compile Include="../../Core/PetProfiles.cs" Link="PetProfiles.cs" />
+  </ItemGroup>
+</Project>

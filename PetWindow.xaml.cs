@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
@@ -22,7 +23,10 @@ namespace BonbonPet;
 
 public partial class PetWindow : Window, IDisposable
 {
-    private readonly AudioService _audio = new();
+    private readonly AudioService _audio;
+    private readonly PetCoordinator? _coordinator;
+    private static readonly ConditionalWeakTable<BitmapSource, SpriteOutline> OutlineCache = new();
+    private Point[] _collisionVertices = Array.Empty<Point>();
     private readonly PetPhysics _physics = new();
     private bool _renderSubscribed;
     private long _lastRenderBucket = -1;
@@ -33,6 +37,7 @@ public partial class PetWindow : Window, IDisposable
     private double _previewReleaseAt;
     private readonly List<double> _frameIntervals = new(400);
     private double _previousFrameTime;
+    private double _spriteAdvanceAge;
     private double _previewNext;
     private bool _collectFrameIntervals;
     private readonly DispatcherTimer _housekeeping;
@@ -60,6 +65,23 @@ public partial class PetWindow : Window, IDisposable
     private string[] _phrases = Array.Empty<string>();
     public PetSettings Settings { get; }
     public BitmapSource CurrentFrame => _sprite.CurrentFrame;
+    internal PetCoordinator? Coordinator => _coordinator;
+    internal bool IsAudioActive => !_disposed && !_suspended && Settings.AudioEnabled;
+    internal bool IsCollisionActive => !_disposed && !_suspended;
+    internal bool CanMoveForCollision => Settings.PhysicsEnabled && !_grabbed;
+    internal Point PreviousCollisionCenter { get; private set; }
+    internal SpriteAnimation ForkSprite() => _sprite.Fork();
+    internal void CaptureSettingsPosition() { Settings.CenterX = _physics.X; Settings.CenterY = _physics.Y; }
+    internal void CaptureCollisionStart() => PreviousCollisionCenter = new Point(_physics.X, _physics.Y);
+    internal ReadOnlySpan<Point> GetCollisionVertices()
+    {
+        var outline = _outlines[_sprite.CurrentFrame];
+        int count = outline.CopyVertices(_collisionVertices, Settings.Size, Settings.Size, Squash.ScaleX, Squash.ScaleY,
+            Spin.Angle, Bounce.Y, _scale, _physics.X, _physics.Y);
+        return _collisionVertices.AsSpan(0, count);
+    }
+    internal void RefreshAfterPeerCollision() { if (!_grabbed) ConstrainToScreen(); PlacePet(); if (_bubble.IsVisible) PlaceBubble(); }
+    internal void RenderCoordinated(object? sender, EventArgs e, double dt) => Animate(sender, e, dt);
     internal AudioService Audio => _audio;
     internal PetPhysics Physics => _physics;
     internal SettingsWindow? SettingsPanel => _settingsWindow;
@@ -69,11 +91,12 @@ public partial class PetWindow : Window, IDisposable
     internal double[] EndFrameMeasurement() { _collectFrameIntervals = false; return _frameIntervals.ToArray(); }
     internal void ValidateTrayForTest() { if (_tray == null) CreateTray(); }
 
-    public PetWindow(PetSettings settings, bool testing = false)
+    public PetWindow(PetSettings settings, bool testing = false, PetCoordinator? coordinator = null, SpriteAnimation? sprite = null)
     {
-        Settings = settings; _testing = testing;
+        Settings = settings; _testing = testing; _coordinator = coordinator;
+        _audio = coordinator is null ? new AudioService() : new AudioService(coordinator.AudioMeter);
         InitializeComponent();
-        try { _sprite = settings.CharacterPath != null ? SpriteAnimation.Load(settings.CharacterPath) : SpriteAnimation.LoadDefault(); }
+        try { _sprite = sprite ?? (settings.CharacterPath != null ? SpriteAnimation.Load(settings.CharacterPath) : SpriteAnimation.LoadDefault()); }
         catch { Settings.CharacterPath = null; _sprite = SpriteAnimation.LoadDefault(); }
         BuildOutlines();
         PetImage.Source = _sprite.CurrentFrame;
@@ -85,7 +108,11 @@ public partial class PetWindow : Window, IDisposable
         MouseLeftButtonUp += PointerUp;
         LostMouseCapture += (_, _) => { if (_grabbed) ReleaseGrab(); };
         PetImage.MouseRightButtonUp += (_, e) => { OpenMenu(); e.Handled = true; };
-        Closed += (_, _) => { if (!_testing) SaveSettings(); Dispose(); System.Windows.Application.Current.Shutdown(); };
+        Closed += (_, _) =>
+        {
+            if (_coordinator is not null) _coordinator.OnPetClosed(this);
+            else { if (!_testing) SaveSettings(); Dispose(); System.Windows.Application.Current.Shutdown(); }
+        };
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
@@ -103,7 +130,7 @@ public partial class PetWindow : Window, IDisposable
             _bounds = (savedScreen.Left, savedScreen.Top, savedScreen.Right, savedScreen.Bottom);
         }
         ApplySettings();
-        if (!_testing) CreateTray();
+        if (!_testing && _coordinator is null) CreateTray();
         _lastTime = _clock.Elapsed.TotalSeconds;
         StartAnimation(); _housekeeping.Start();
         Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(() => { if (!_disposed) _bubble.Prepare(); }));
@@ -113,24 +140,27 @@ public partial class PetWindow : Window, IDisposable
     {
         if (_disposed) return;
         FullSettingsApplyCount++;
+        Title = $"弹弹桌宠 · Tantan · {Settings.InstanceName}";
         Width = Height = Math.Ceiling(Settings.Size * 1.85);
         PetImage.Width = PetImage.Height = Settings.Size;
         Topmost = Settings.Topmost;
         RefreshDialoguePool();
-        _bubble.SetAppearance(Settings.BubbleFontFamily, Settings.BubbleFontSize);
+        ApplyBubbleAppearance();
         if (Settings.SqueakSound == "duck" && !AudioService.HasDuckAssets) Settings.SqueakSound = "original";
         _audio.SqueakVolume = (float)Settings.SqueakVolume;
         try { _audio.ConfigureSqueak(Settings.SqueakSound, Settings.CustomSoundPath); }
         catch (Exception ex) { App.Log(ex); Settings.SqueakSound = "original"; _audio.ConfigureSqueak("original", null); }
         _audio.SetSoundActive(!_suspended);
         if (Settings.AudioEnabled && !_suspended) _audio.Start(); else _audio.Stop();
+        _coordinator?.RefreshAudio();
         _lastRenderBucket = -1;
-        if (Settings.PhysicsEnabled && !_wasPhysics) _physics.Kick(Settings.Speed * _scale);
+        if (Settings.PhysicsEnabled && !_wasPhysics) _physics.Kick(ChooseKickSpeed() * _scale);
         if (!Settings.PhysicsEnabled && _wasPhysics) { _physics.Stop(); _physics.Angle = 0; }
         if (Settings.PhysicsEnabled && _wasPhysics && Settings.Speed != _configuredSpeed)
         {
             double speed = Math.Sqrt(_physics.VelocityX * _physics.VelocityX + _physics.VelocityY * _physics.VelocityY);
-            if (speed > .01) { double ratio = Settings.Speed * _scale / speed; _physics.VelocityX *= ratio; _physics.VelocityY *= ratio; }
+            if (speed > .01 && (!Settings.RandomKickSpeed || speed > Settings.Speed * _scale))
+            { double ratio = Settings.Speed * _scale / speed; _physics.VelocityX *= ratio; _physics.VelocityY *= ratio; }
         }
         _wasPhysics = Settings.PhysicsEnabled;
         _configuredSpeed = Settings.Speed;
@@ -140,6 +170,19 @@ public partial class PetWindow : Window, IDisposable
     }
 
     public void ScheduleSave() => _saveAfter = _clock.Elapsed.TotalSeconds + .75;
+    public void ApplyBubbleAppearance()
+    {
+        if (_disposed) return;
+        _bubble.SetAppearance(Settings.BubbleFontFamily, Settings.BubbleFontSize, Settings.Size / 220d * Settings.BubbleScale, Settings.BubbleFontWeight);
+        FitBubbleToScreen();
+        if (_bubble.IsVisible) PlaceBubble();
+        ScheduleSave();
+    }
+    private void FitBubbleToScreen()
+    {
+        var work = Forms.Screen.FromPoint(new System.Drawing.Point((int)_physics.X, (int)_physics.Y)).WorkingArea;
+        _bubble.FitToBounds(Math.Max(8, work.Width - 24) / _scale, Math.Max(8, work.Height - 24) / _scale);
+    }
 
     // A text edit must not reconfigure audio, resize the pet HWND or constrain
     // its motion. The phrase pool changes immediately; persistence is debounced.
@@ -160,12 +203,15 @@ public partial class PetWindow : Window, IDisposable
     {
         if (_renderSubscribed || _disposed) return;
         _lastRenderBucket = -1; _lastRenderingTime = TimeSpan.MinValue; _lastTime = _clock.Elapsed.TotalSeconds;
-        CompositionTarget.Rendering += OnRendering; _renderSubscribed = true;
+        if (_coordinator is null) CompositionTarget.Rendering += OnRendering;
+        else { _coordinator.SetAnimated(this, true); _coordinator.EnsureRendering(); }
+        _renderSubscribed = true;
     }
     private void StopAnimation()
     {
         if (!_renderSubscribed) return;
-        CompositionTarget.Rendering -= OnRendering; _renderSubscribed = false;
+        if (_coordinator is null) CompositionTarget.Rendering -= OnRendering; else _coordinator.SetAnimated(this, false);
+        _renderSubscribed = false;
     }
     private void OnRendering(object? sender, EventArgs e)
     {
@@ -178,17 +224,23 @@ public partial class PetWindow : Window, IDisposable
         _lastRenderBucket = bucket; Animate(sender, e);
     }
 
-    private void Animate(object? sender, EventArgs e)
+    private void Animate(object? sender, EventArgs e, double? coordinatedDt = null)
     {
-        double now = _clock.Elapsed.TotalSeconds, dt = Math.Clamp(now - _lastTime, 0, .1); _lastTime = now;
+        double now = _clock.Elapsed.TotalSeconds, dt = coordinatedDt ?? Math.Clamp(now - _lastTime, 0, .1); _lastTime = now;
         if (_suspended) return;
         if (_collectFrameIntervals)
         {
             if (_previousFrameTime > 0) _frameIntervals.Add((now - _previousFrameTime) * 1000);
             _previousFrameTime = now;
         }
-        _sprite.Advance(dt);
-        if (!ReferenceEquals(PetImage.Source, _sprite.CurrentFrame)) { PetImage.Source = _sprite.CurrentFrame; _hitFrame = null; }
+        _spriteAdvanceAge += dt;
+        long spriteBucket = (long)Math.Floor(((RenderingEventArgs)e).RenderingTime.TotalSeconds * Settings.Fps + .000001);
+        if (_coordinator is null || spriteBucket != _lastRenderBucket)
+        {
+            _lastRenderBucket = spriteBucket;
+            _sprite.Advance(_spriteAdvanceAge); _spriteAdvanceAge = 0;
+            if (!ReferenceEquals(PetImage.Source, _sprite.CurrentFrame)) { PetImage.Source = _sprite.CurrentFrame; _hitFrame = null; }
+        }
         if (_previewReleaseAt > 0 && now >= _previewReleaseAt) { _previewReleaseAt = 0; _pressSpring.Release(); }
         _pressSpring.Step(dt, Settings.SqueezeStrength);
         double squeeze = _pressSpring.Compression;
@@ -209,7 +261,7 @@ public partial class PetWindow : Window, IDisposable
             var edge = VisibleOffsets(_physics.AngleAfter(dt, Settings.Decay));
             _physics.Step(dt, _bounds.Left, _bounds.Top, _bounds.Right, _bounds.Bottom, edge.Left, edge.Top, edge.Right, edge.Bottom, Settings.Decay);
             PlacePet(); _kickAge += dt;
-            if (Settings.AutoKick && _kickAge >= Settings.KickInterval) { _physics.Kick(Settings.Speed * _scale); _kickAge = 0; }
+            if (Settings.AutoKick && _kickAge >= Settings.KickInterval) { _physics.Kick(ChooseKickSpeed() * _scale); _kickAge = 0; }
         }
         SetNear(Spin, RotateTransform.AngleProperty, Settings.PhysicsEnabled ? _physics.Angle : _swayDirection * (_beatPulse * 4 + activity * Math.Sin(now * 1.8) * 1.2));
         // Rotation, GIF frame changes and squeezing can change the visible extent even at rest.
@@ -229,7 +281,13 @@ public partial class PetWindow : Window, IDisposable
         int bytes = 0;
         foreach (var frame in _sprite.Frames) bytes = Math.Max(bytes, checked(frame.PixelWidth * frame.PixelHeight * 4));
         var scratch = new byte[bytes];
-        foreach (var frame in _sprite.Frames) _outlines[frame] = new SpriteOutline(frame, 32, scratch);
+        int vertices = 0;
+        foreach (var frame in _sprite.Frames)
+        {
+            _outlines[frame] = OutlineCache.GetValue(frame, image => new SpriteOutline(image, 32, scratch));
+            vertices = Math.Max(vertices, _outlines[frame].VertexCount);
+        }
+        _collisionVertices = new Point[vertices];
     }
     private Rect VisibleOffsets(double angle)
     {
@@ -270,6 +328,7 @@ public partial class PetWindow : Window, IDisposable
         if (hide) { Hide(); _bubble.Hide(); _audio.Stop(); _audio.SetSoundActive(false); StopAnimation(); }
         else { Show(); _placedLeft = double.NaN; PlacePet(); _audio.SetSoundActive(true); StartAnimation(); if (Settings.AudioEnabled) _audio.Start(); }
         if (_settingsWindow?.IsVisible == true) _settingsWindow.UpdatePreview(CurrentFrame, 0, hide ? "桌宠已隐藏，音频分析已暂停" : _audio.Status, 1, 1);
+        _coordinator?.RefreshAudio();
     }
 
     public void Squeeze()
@@ -285,8 +344,9 @@ public partial class PetWindow : Window, IDisposable
     internal void EndPressFeedback() { _previewReleaseAt = 0; _pressSpring.Release(); _audio.ReleaseSqueak(); }
     public void Kick()
     {
-        Settings.PhysicsEnabled = true; _wasPhysics = true; _physics.Kick(Settings.Speed * _scale); _kickAge = 0; ScheduleSave();
+        Settings.PhysicsEnabled = true; _wasPhysics = true; _physics.Kick(ChooseKickSpeed() * _scale); _kickAge = 0; ScheduleSave();
     }
+    private double ChooseKickSpeed() => Settings.RandomKickSpeed ? 25 + Random.Shared.NextDouble() * Math.Max(0, Settings.Speed - 25) : Settings.Speed;
     public void SayRandom()
     {
         _bubbleDeadline = _clock.Elapsed.TotalSeconds + Settings.BubbleInterval * (.7 + Random.Shared.NextDouble() * .6);
@@ -303,10 +363,11 @@ public partial class PetWindow : Window, IDisposable
         // Showing a WPF window can render reentrantly. Arm the lifetime before
         // Show(), so the animation callback cannot hide a newly opened bubble.
         _bubbleUntil = _clock.Elapsed.TotalSeconds + seconds;
-        _bubble.Topmost = Settings.Topmost; _bubble.Say(text); PlaceBubble();
+        FitBubbleToScreen(); _bubble.Topmost = Settings.Topmost; _bubble.Say(text); PlaceBubble();
     }
     private void PlaceBubble()
     {
+        FitBubbleToScreen();
         double bubbleScale = DesktopService.GetWindowScale(new WindowInteropHelper(_bubble).Handle);
         double bw = _bubble.ActualWidth * bubbleScale, bh = _bubble.ActualHeight * bubbleScale;
         var edge = VisibleOffsets(Spin.Angle);
@@ -419,6 +480,11 @@ public partial class PetWindow : Window, IDisposable
         var next = SpriteAnimation.LoadDefault(); _sprite.Dispose(); _sprite = next; BuildOutlines(); Settings.CharacterPath = null;
         PetImage.Source = next.CurrentFrame; _hitFrame = null; ScheduleSave();
     }
+    internal void SetCharacterForTest(string path)
+    {
+        var next = SpriteAnimation.Load(path); _sprite.Dispose(); _sprite = next; BuildOutlines(); Settings.CharacterPath = path;
+        PetImage.Source = next.CurrentFrame; _hitFrame = null; ScheduleSave();
+    }
     private void OpenMenu()
     {
         var menu = new ContextMenu();
@@ -429,7 +495,12 @@ public partial class PetWindow : Window, IDisposable
         AddMenu(menu, "音频律动", () => { Settings.AudioEnabled = !Settings.AudioEnabled; ApplySettings(); _settingsWindow?.Reload(); }, Settings.AudioEnabled);
         AddMenu(menu, "置顶", () => { Settings.Topmost = !Settings.Topmost; ApplySettings(); _settingsWindow?.Reload(); }, Settings.Topmost);
         AddMenu(menu, "随机推进", () => { Kick(); _settingsWindow?.Reload(); });
-        menu.Items.Add(new Separator()); AddMenu(menu, "隐藏桌宠（从托盘恢复）", ToggleHidden); AddMenu(menu, "退出", Exit);
+        if (_coordinator is not null)
+        {
+            AddMenu(menu, "创建角色", () => { try { _coordinator.AddInstance(this); } catch (Exception ex) { MessageBox.Show(ex.Message, "创建角色"); } });
+            AddMenu(menu, "删除此角色", () => { if (!_coordinator.RemoveInstance(this)) MessageBox.Show("至少保留一个角色。", "删除角色"); });
+        }
+        menu.Items.Add(new Separator()); AddMenu(menu, "隐藏桌宠（从托盘恢复）", ToggleHidden); AddMenu(menu, "退出程序", Exit);
         menu.PlacementTarget = this; menu.IsOpen = true;
     }
     private static void AddMenu(ContextMenu menu, string text, Action action, bool? check = null)
@@ -448,11 +519,14 @@ public partial class PetWindow : Window, IDisposable
         _tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowSettings);
     }
     private void ToggleHidden() { _manualHidden = !_manualHidden; SetSuspended(_manualHidden || (Settings.HideOnFullscreen && DesktopService.IsOtherAppFullscreen(_handle))); }
-    public void Exit() { if (!_testing) SaveSettings(); Dispose(); System.Windows.Application.Current.Shutdown(); }
+    internal void ToggleVisibility() => ToggleHidden();
+    internal void RestoreVisibility() { _manualHidden = false; SetSuspended(Settings.HideOnFullscreen && DesktopService.IsOtherAppFullscreen(_handle)); }
+    public void Exit() { if (_coordinator is not null) { _coordinator.Exit(); return; } if (!_testing) SaveSettings(); Dispose(); System.Windows.Application.Current.Shutdown(); }
     private void SaveSettings(bool flush = true)
     {
         if (_testing) return;
         Settings.CenterX = _physics.X; Settings.CenterY = _physics.Y; _saveAfter = double.PositiveInfinity;
+        if (_coordinator is not null) { _coordinator.RequestSave(flush); return; }
         // Snapshot on the UI thread, then write in order off-thread. Serializing
         // the live settings in a worker could race the next edit. Closing waits
         // for the final snapshot so an older autosave cannot overwrite it.

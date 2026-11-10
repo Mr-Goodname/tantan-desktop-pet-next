@@ -22,6 +22,7 @@ public sealed class SpriteAnimation : IDisposable
     private readonly double _cycleSeconds;
     private int _index;
     private double _elapsed;
+    private static readonly Lazy<SpriteAnimation> DefaultCache = new(LoadDefaultFrames);
 
     public IReadOnlyList<BitmapSource> Frames => _frames;
     public BitmapSource CurrentFrame => _frames[_index];
@@ -48,7 +49,9 @@ public sealed class SpriteAnimation : IDisposable
         }
     }
 
-    public static SpriteAnimation LoadDefault()
+    public SpriteAnimation Fork() => new(_frames, _durations, SourcePath);
+    public static SpriteAnimation LoadDefault() => DefaultCache.Value.Fork();
+    private static SpriteAnimation LoadDefaultFrames()
     {
         string folder = Path.Combine(AppContext.BaseDirectory, "Assets", "default");
         var manifest = JsonSerializer.Deserialize<FrameManifest>(File.ReadAllText(Path.Combine(folder, "manifest.json")),
