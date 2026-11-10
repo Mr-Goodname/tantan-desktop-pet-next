@@ -12,9 +12,12 @@ internal static class Program
 {
     private static int _checks;
     private static double _maximumNativeSizeDifference;
+    private static double _coercedMaxWidth = double.PositiveInfinity, _coercedMaxHeight = double.PositiveInfinity;
+    private static int _dimensionCoercions;
     [STAThread]
     private static void Main(string[] args)
     {
+        InstallDimensionCoercionRegression();
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         string longPhrase = string.Concat(Enumerable.Repeat("朋友一起慢慢向前走，开心比什么都贵。", 8)).Substring(0, 110);
         foreach (double size in new[] { 10d, 13.5, 32d })
@@ -113,8 +116,48 @@ internal static class Program
         bubble.Say(new string('耶', 110)); Validate(bubble, "native client constraint removed");
         Check(bubble.CurrentVisualScale > nativeLimitedScale && bubble.RequestedVisualScale == 5,
             "Removing the native size ceiling restores the requested scale as desktop space permits");
+        // A native/WPF size correction can replace the Width/Height property
+        // value itself. Comparing ActualHeight with that coerced getter would
+        // miss the original request even though the visual still needs to fit.
+        _dimensionCoercions = 0;
+        _coercedMaxWidth = 310; _coercedMaxHeight = 220;
+        double coercedScale;
+        try
+        {
+            bubble.Say(new string('耶', 110)); Validate(bubble, "coerced dimension properties");
+            Check(_dimensionCoercions > 0 && bubble.Width <= 310 && bubble.Height <= 220 &&
+                bubble.ActualWidth <= 311 && bubble.ActualHeight <= 221 && bubble.CurrentVisualScale < bubble.RequestedVisualScale,
+                "Coerced Width/Height getters cannot hide a too-large visual request");
+            coercedScale = bubble.CurrentVisualScale;
+        }
+        finally { _coercedMaxWidth = _coercedMaxHeight = double.PositiveInfinity; }
+        bubble.Say(new string('耶', 110)); Validate(bubble, "dimension property coercion removed");
+        Check(bubble.CurrentVisualScale > coercedScale && bubble.RequestedVisualScale == 5,
+            "Removing property coercion restores the full requested scale as desktop space permits");
         bubble.Close(); app.Shutdown();
         Console.WriteLine($"{_checks} bubble checks passed; native size difference at most {_maximumNativeSizeDifference:F3}px. Preview: " + output);
+    }
+    private static void InstallDimensionCoercionRegression()
+    {
+        // Preserve Window's own native-size coercion; the test ceiling remains
+        // disabled for every preceding real HWND/font/raster matrix scenario.
+        System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(typeof(Window).TypeHandle);
+        var widthCoercion = FrameworkElement.WidthProperty.GetMetadata(typeof(Window)).CoerceValueCallback;
+        var heightCoercion = FrameworkElement.HeightProperty.GetMetadata(typeof(Window)).CoerceValueCallback;
+        FrameworkElement.WidthProperty.OverrideMetadata(typeof(BubbleWindow),
+            new FrameworkPropertyMetadata(double.NaN, FrameworkPropertyMetadataOptions.None, null, (owner, value) =>
+            {
+                var result = widthCoercion?.Invoke(owner, value) ?? value;
+                if (result is double dimension && dimension > _coercedMaxWidth) { _dimensionCoercions++; return _coercedMaxWidth; }
+                return result;
+            }));
+        FrameworkElement.HeightProperty.OverrideMetadata(typeof(BubbleWindow),
+            new FrameworkPropertyMetadata(double.NaN, FrameworkPropertyMetadataOptions.None, null, (owner, value) =>
+            {
+                var result = heightCoercion?.Invoke(owner, value) ?? value;
+                if (result is double dimension && dimension > _coercedMaxHeight) { _dimensionCoercions++; return _coercedMaxHeight; }
+                return result;
+            }));
     }
     private static void Validate(BubbleWindow bubble, string scenario)
     {

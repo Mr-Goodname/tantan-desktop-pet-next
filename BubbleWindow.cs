@@ -150,8 +150,10 @@ public sealed class BubbleWindow : Window
                 Math.Min((availableWidth - 4) / natural.Width, (availableHeight - 4) / natural.Height));
             if (_visualTransform.ScaleX != fittedScale)
                 _visualTransform.ScaleX = _visualTransform.ScaleY = fittedScale;
-            Width = Math.Ceiling(natural.Width * fittedScale + 4 - .0000001);
-            Height = Math.Ceiling(natural.Height * fittedScale + 4 - .0000001);
+            double requestedWidth = Math.Ceiling(natural.Width * fittedScale + 4 - .0000001);
+            double requestedHeight = Math.Ceiling(natural.Height * fittedScale + 4 - .0000001);
+            Width = requestedWidth;
+            Height = requestedHeight;
             // Let the visible window own the final arrange and clipping rectangle.
             _host.InvalidateMeasure(); _host.InvalidateArrange(); _surface.InvalidateArrange();
             InvalidateMeasure();
@@ -163,12 +165,12 @@ public sealed class BubbleWindow : Window
             // Keep this limit local: a later layout on a larger monitor retries
             // the requested visual scale instead of retaining an old ceiling.
             bool clientLimited = false;
-            if (_host.ActualWidth > 0 && _host.ActualWidth + .75 < Width)
+            if (_host.ActualWidth > 0 && _host.ActualWidth + .75 < requestedWidth)
             {
                 availableWidth = Math.Min(availableWidth, Math.Max(8, _host.ActualWidth));
                 clientLimited = true;
             }
-            if (_host.ActualHeight > 0 && _host.ActualHeight + .75 < Height)
+            if (_host.ActualHeight > 0 && _host.ActualHeight + .75 < requestedHeight)
             {
                 availableHeight = Math.Min(availableHeight, Math.Max(8, _host.ActualHeight));
                 clientLimited = true;
