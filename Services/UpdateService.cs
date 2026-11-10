@@ -67,7 +67,7 @@ public sealed class UpdateService : IDisposable
             Timeout = Timeout.InfiniteTimeSpan,
             MaxResponseContentBufferSize = 2 * 1024 * 1024
         };
-        _client.DefaultRequestHeaders.UserAgent.ParseAdd($"BonbonPet/{CurrentVersion}");
+        _client.DefaultRequestHeaders.UserAgent.ParseAdd($"TantanPet/{CurrentVersion}");
         _client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         _client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
     }

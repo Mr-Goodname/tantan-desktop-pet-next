@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -43,6 +45,8 @@ public partial class PetWindow : Window, IDisposable
     private double _scale = 1, _lastTime, _kickAge;
     private double _bubbleDeadline = 12, _bubbleUntil;
     private double _saveAfter = double.PositiveInfinity;
+    private Task _settingsSaveTask = Task.CompletedTask;
+    private static readonly JsonSerializerOptions SettingsJsonOptions = new() { WriteIndented = true };
     private double _configuredSpeed = double.NaN;
     private double _audioAverage, _beatPulse, _beatAge = 1, _swayDirection = 1;
     private double _placedLeft = double.NaN, _placedTop = double.NaN;
@@ -60,6 +64,7 @@ public partial class PetWindow : Window, IDisposable
     internal PetPhysics Physics => _physics;
     internal SettingsWindow? SettingsPanel => _settingsWindow;
     internal BubbleWindow BubblePanel => _bubble;
+    internal int FullSettingsApplyCount { get; private set; }
     internal void BeginFrameMeasurement() { _frameIntervals.Clear(); _previousFrameTime = 0; _collectFrameIntervals = true; }
     internal double[] EndFrameMeasurement() { _collectFrameIntervals = false; return _frameIntervals.ToArray(); }
     internal void ValidateTrayForTest() { if (_tray == null) CreateTray(); }
@@ -107,12 +112,12 @@ public partial class PetWindow : Window, IDisposable
     public void ApplySettings()
     {
         if (_disposed) return;
+        FullSettingsApplyCount++;
         Width = Height = Math.Ceiling(Settings.Size * 1.85);
         PetImage.Width = PetImage.Height = Settings.Size;
         Topmost = Settings.Topmost;
-        _phrases = PhraseBook.GetPhrases(Settings);
+        RefreshDialoguePool();
         _bubble.SetAppearance(Settings.BubbleFontFamily, Settings.BubbleFontSize);
-        if (_phrases.Length == 0) _bubble.Hide();
         if (Settings.SqueakSound == "duck" && !AudioService.HasDuckAssets) Settings.SqueakSound = "original";
         _audio.SqueakVolume = (float)Settings.SqueakVolume;
         try { _audio.ConfigureSqueak(Settings.SqueakSound, Settings.CustomSoundPath); }
@@ -135,6 +140,21 @@ public partial class PetWindow : Window, IDisposable
     }
 
     public void ScheduleSave() => _saveAfter = _clock.Elapsed.TotalSeconds + .75;
+
+    // A text edit must not reconfigure audio, resize the pet HWND or constrain
+    // its motion. The phrase pool changes immediately; persistence is debounced.
+    internal void ApplyDialogueSettings()
+    {
+        if (_disposed) return;
+        RefreshDialoguePool();
+        ScheduleSave();
+    }
+
+    private void RefreshDialoguePool()
+    {
+        _phrases = PhraseBook.GetPhrases(Settings);
+        if (_phrases.Length == 0) _bubble.Hide();
+    }
 
     private void StartAnimation()
     {
@@ -240,7 +260,7 @@ public partial class PetWindow : Window, IDisposable
         double newScale = DesktopService.GetWindowScale(_handle);
         var bounds = DesktopService.GetMonitorBounds(_handle);
         if (newScale != _scale || bounds != _bounds) { _scale = newScale; _bounds = bounds; if (!_grabbed) ConstrainToScreen(); PlacePet(); }
-        if (!_testing && _clock.Elapsed.TotalSeconds >= _saveAfter) SaveSettings();
+        if (!_testing && _clock.Elapsed.TotalSeconds >= _saveAfter) SaveSettings(flush: false);
     }
 
     private void SetSuspended(bool hide)
@@ -424,16 +444,39 @@ public partial class PetWindow : Window, IDisposable
         trayMenu.Items.Add("显示 / 隐藏桌宠", null, (_, _) => Dispatcher.Invoke(ToggleHidden));
         trayMenu.Items.Add(new Forms.ToolStripSeparator());
         trayMenu.Items.Add("退出", null, (_, _) => Dispatcher.Invoke(Exit));
-        _tray = new Forms.NotifyIcon { Text = "弹弹桌宠 · 双击打开设置", Icon = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "bonbon.ico")), ContextMenuStrip = trayMenu, Visible = true };
+        _tray = new Forms.NotifyIcon { Text = "弹弹桌宠 · Tantan · 双击打开设置", Icon = new System.Drawing.Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "bonbon.ico")), ContextMenuStrip = trayMenu, Visible = true };
         _tray.DoubleClick += (_, _) => Dispatcher.Invoke(ShowSettings);
     }
     private void ToggleHidden() { _manualHidden = !_manualHidden; SetSuspended(_manualHidden || (Settings.HideOnFullscreen && DesktopService.IsOtherAppFullscreen(_handle))); }
     public void Exit() { if (!_testing) SaveSettings(); Dispose(); System.Windows.Application.Current.Shutdown(); }
-    private void SaveSettings()
+    private void SaveSettings(bool flush = true)
     {
         if (_testing) return;
         Settings.CenterX = _physics.X; Settings.CenterY = _physics.Y; _saveAfter = double.PositiveInfinity;
-        try { Settings.Save(); } catch (Exception ex) { App.Log(ex); }
+        // Snapshot on the UI thread, then write in order off-thread. Serializing
+        // the live settings in a worker could race the next edit. Closing waits
+        // for the final snapshot so an older autosave cannot overwrite it.
+        try
+        {
+            string snapshot = JsonSerializer.Serialize(Settings, SettingsJsonOptions);
+            _settingsSaveTask = _settingsSaveTask.ContinueWith(_ =>
+            {
+                try
+                {
+                    Directory.CreateDirectory(PetSettings.DataDirectory);
+                    string temporary = PetSettings.FilePath + ".tmp";
+                    File.WriteAllText(temporary, snapshot);
+                    File.Move(temporary, PetSettings.FilePath, true);
+                }
+                catch (Exception ex) { App.Log(ex); }
+            }, TaskScheduler.Default);
+        }
+        catch (Exception ex) { App.Log(ex); }
+        if (flush)
+        {
+            try { _settingsSaveTask.GetAwaiter().GetResult(); }
+            catch (Exception ex) { App.Log(ex); }
+        }
     }
     private IntPtr WindowHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {

@@ -7,13 +7,13 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>BonbonPet</AssemblyName>
-    <AssemblyTitle>弹弹桌宠</AssemblyTitle>
-    <Product>弹弹桌宠</Product>
+    <AssemblyTitle>弹弹桌宠 · Tantan</AssemblyTitle>
+    <Product>弹弹桌宠 · Tantan</Product>
     <RootNamespace>BonbonPet</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\bonbon.ico</ApplicationIcon>
-    <Version>0.4.1</Version>
-    <Description>弹弹桌宠 — 音频律动与桌面物理互动</Description>
+    <Version>0.4.2</Version>
+    <Description>弹弹桌宠（Tantan）— 音频律动与桌面物理互动</Description>
     <Company>弹弹桌宠</Company>
     <DefaultItemExcludes>$(DefaultItemExcludes);tools\**;Tests\**;artifacts\**;dist\**</DefaultItemExcludes>
     <DuckSoundExclusions Condition="'$(IncludeLocalDuckSounds)' == 'false'">Assets\Sounds\Ya1.mp3;Assets\Sounds\Ya2.mp3</DuckSoundExclusions>

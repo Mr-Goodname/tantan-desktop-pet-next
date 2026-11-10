@@ -42,16 +42,14 @@ service.ReleaseSqueak();
 Check(ReadSamples(release.Length).SequenceEqual(release), "Mouse release plays Ya2 after a long hold");
 service.ReleaseSqueak(); Check(ReadSamples(256).All(x => x == 0), "Duplicate release cannot play a second Ya2");
 service.PlaySqueak(); Check(ReadSamples(duck.Length).SequenceEqual(duck), "Preview button plays the exact complete Ya1 and Ya2 pair");
-stream.Clear();
-// Seven preceding clips leave exactly one slot, so the next press fills the
-// ring; its release must preserve that latest press when trimming the backlog.
-for (int i = 0; i < 7; i++) stream.Enqueue(original, 1);
+service.PressSqueak(); service.ReleaseSqueak(); ReadSamples(128);
 service.PressSqueak(); service.ReleaseSqueak();
-Check(ReadSamples(duck.Length).SequenceEqual(duck), "Overflow preserves latest complete press/release pair");
-stream.Clear();
-for (int i = 0; i < 30; i++) { service.PressSqueak(); service.ReleaseSqueak(); }
-var burst = ReadSamples(duck.Length * 4 + 256);
-Check(burst.Take(duck.Length).SequenceEqual(duck) && burst.Skip(duck.Length * 2).All(x => x == 0), "Rapid clicking has a fixed backlog and coherent complete pairs");
+Check(ReadSamples(duck.Length).SequenceEqual(duck), "Next click interrupts an in-progress pair and starts the latest Ya1 then Ya2");
+for (int i = 0; i < 100; i++) { service.PressSqueak(); service.ReleaseSqueak(); }
+var burst = ReadSamples(duck.Length + 256);
+Check(burst.Take(duck.Length).SequenceEqual(duck) && burst.Skip(duck.Length).All(x => x == 0), "One hundred rapid clicks produce exactly the latest pair then silence");
+service.PressSqueak(); ReadSamples(128); service.PlaySqueak(); service.ReleaseSqueak();
+Check(ReadSamples(duck.Length + 256).SequenceEqual(duck.Concat(new short[256])), "Preview replaces the current press and disarms its old release");
 }
 else
 {
@@ -60,6 +58,29 @@ else
     Check(ReadSamples(256).All(x => x == 0), "Public fallback release adds no missing clip or duplicate sound");
 }
 stream.Clear();
+// Distinct PCM makes any leaked tail from a previous gesture observable.
+var previousPress = Enumerable.Range(0, 1024).Select(i => (short)(i + 500)).ToArray();
+var previousRelease = Enumerable.Repeat((short)-1200, 512).ToArray();
+var latestPress = Enumerable.Repeat((short)2400, 256).ToArray();
+var latestRelease = Enumerable.Repeat((short)-3600, 128).ToArray();
+stream.Enqueue(previousPress, 1); stream.Enqueue(previousRelease, 1, releasePart: true);
+Check(ReadSamples(128).SequenceEqual(previousPress.Take(128)), "First driver refill contains the beginning of the active sound");
+stream.Enqueue(latestPress, 1); stream.Enqueue(latestRelease, 1, releasePart: true);
+var latestPair = latestPress.Concat(latestRelease).ToArray();
+Check(ReadSamples(latestPair.Length + 256).SequenceEqual(latestPair.Concat(new short[256])), "A new gesture cuts old press and queued release without leaving a backlog");
+stream.Clear();
+stream.Enqueue(previousPress, 1); stream.Enqueue(previousRelease, 1, releasePart: true);
+ReadSamples(previousPress.Length + 128);
+stream.Enqueue(latestPress, 1); stream.Enqueue(latestRelease, 1, releasePart: true);
+Check(ReadSamples(latestPair.Length + 256).SequenceEqual(latestPair.Concat(new short[256])), "A new gesture also interrupts an already playing release");
+stream.Clear();
+stream.Enqueue(latestPress, 1);
+ReadSamples(latestPress.Length);
+stream.Enqueue(latestRelease, 1, releasePart: true);
+Check(ReadSamples(latestRelease.Length).SequenceEqual(latestRelease), "Release still plays once if its press already finished during a hold");
+stream.Enqueue(latestRelease, 1, releasePart: true);
+Check(ReadSamples(256).All(x => x == 0), "Duplicate release cannot start an extra clip in the provider");
+stream.Clear();
 var allocationBuffer = new byte[256];
 for (int i = 0; i < 20; i++) { stream.Enqueue(press, .5f); stream.Read(allocationBuffer, 0, allocationBuffer.Length); stream.Clear(); }
 long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
@@ -67,6 +88,8 @@ for (int i = 0; i < 1000; i++) { stream.Enqueue(press, .5f); stream.Read(allocat
 Check(GC.GetAllocatedBytesForCurrentThread() == allocatedBefore, "Clip enqueue/read/reset performs no hot-path allocation");
 service.ConfigureSqueak("duck", "ignored path"); Check(ReferenceEquals(duck, Samples(service)), "Preset cache unchanged by irrelevant custom path");
 service.ConfigureSqueak("original", null); Check(ReferenceEquals(original, Samples(service)), "Original preset reuses static cache");
+service.PressSqueak(); ReadSamples(128); service.PressSqueak(); service.ReleaseSqueak();
+Check(ReadSamples(original.Length + 256).SequenceEqual(original.Concat(new short[256])), "Original sound restarts on the newest press with no queued tail");
 
 string folder = Path.Combine(AppContext.BaseDirectory, "generated"); Directory.CreateDirectory(folder);
 string silent = Path.Combine(folder, "silent.wav"), stereo = Path.Combine(folder, "stereo.wav");
@@ -99,4 +122,7 @@ string oversized = Path.Combine(folder, "large.wav"); using (var file = File.Cre
 string mp3 = Path.Combine(AppContext.BaseDirectory, "Fixtures", "duck.mp3");
 service.ConfigureSqueak("custom", mp3);
 Check(Samples(service).Length > 10000 && Samples(service).Length < 20000 && Samples(service).Any(x => x != 0), "Own-generated MP3 fixture decoded and cached");
+custom = Samples(service);
+service.PlaySqueak(); ReadSamples(128); service.PressSqueak(); service.ReleaseSqueak();
+Check(ReadSamples(custom.Length + 256).SequenceEqual(custom.Concat(new short[256])), "Custom sound preview is interrupted by the latest press without duplicate release or backlog");
 Console.WriteLine($"{checks} sound checks passed. Original SHA256: {Convert.ToHexString(SHA256.HashData(Bytes(original)))}");

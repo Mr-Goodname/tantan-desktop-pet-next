@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -20,6 +21,7 @@ internal static class SmokeTest
         string output = directory ?? Path.Combine(AppContext.BaseDirectory, "test-artifacts");
         Directory.CreateDirectory(output);
         var checks = new List<string>();
+        double dialogueEditP95Ms = 0, dialogueEditMaxMs = 0;
         try
         {
             await Task.Delay(500);
@@ -28,7 +30,7 @@ internal static class SmokeTest
             Require(original.IsAnimated && original.Frames.Count == 27, "original GIF keeps 27 animated frames", checks);
             Require(pet.CurrentFrame.PixelWidth <= 512 && pet.CurrentFrame.PixelHeight <= 512, "default sprite resolution bounded", checks);
             pet.ShowSettings(); await Task.Delay(250);
-            Require(pet.Title == "弹弹桌宠" && pet.SettingsPanel!.Title == "弹弹桌宠 · 设置", "application and settings use updated name", checks);
+            Require(pet.Title == "弹弹桌宠 · Tantan" && pet.SettingsPanel!.Title == "弹弹桌宠 · Tantan · 设置", "application and settings use updated name", checks);
             Snapshot((FrameworkElement)pet.SettingsPanel!.Content, Path.Combine(output, "settings.png"));
             var sounds = (System.Windows.Controls.ComboBox)pet.SettingsPanel.FindName("SoundCombo");
             sounds.SelectedIndex = 1; Require(pet.Settings.SqueakSound == (AudioService.HasDuckAssets ? "duck" : "original"), "duck selection uses supplied assets or synthesized fallback", checks);
@@ -59,8 +61,11 @@ internal static class SmokeTest
             pet.EndPressFeedback(); bool overshot = false;
             for (int i = 0; i < 14; i++) { await Task.Delay(20); overshot |= squash.ScaleY > 1.04; }
             Require(overshot, "mouse release gives visible spring overshoot", checks);
-            await Task.Delay(900);
-            Require(Math.Abs(squash.ScaleX - 1) < .015 && Math.Abs(squash.ScaleY - 1) < .015, "release settles to original shape", checks);
+            var settleWatch = Stopwatch.StartNew();
+            do { await Task.Delay(50); }
+            while ((Math.Abs(squash.ScaleX - 1) >= .015 || Math.Abs(squash.ScaleY - 1) >= .015) && settleWatch.Elapsed.TotalSeconds < 2);
+            Require(Math.Abs(squash.ScaleX - 1) < .015 && Math.Abs(squash.ScaleY - 1) < .015,
+                $"release settles to original shape (x={squash.ScaleX:F4}, y={squash.ScaleY:F4})", checks);
             pet.Kick(); double startX = pet.Physics.X, startY = pet.Physics.Y;
             await Task.Delay(400);
             Require(Math.Abs(pet.Physics.X - startX) + Math.Abs(pet.Physics.Y - startY) > 10, "physics moves actual pet window", checks);
@@ -74,6 +79,25 @@ internal static class SmokeTest
             Snapshot((FrameworkElement)pet.BubblePanel.Content, Path.Combine(output, "bubble.png"));
             var presets = (System.Windows.Controls.TextBox)pet.SettingsPanel.FindName("PresetPhrasesBox");
             var custom = (System.Windows.Controls.TextBox)pet.SettingsPanel.FindName("PhrasesBox");
+            ((System.Windows.Controls.TabControl)pet.SettingsPanel.FindName("SettingsTabs")).SelectedIndex = 2;
+            await Task.Delay(80);
+            int applyCount = pet.FullSettingsApplyCount;
+            presets.Text = string.Join(Environment.NewLine, Enumerable.Repeat("预设编辑测试", 150));
+            var editTimes = new List<double>();
+            for (int i = 0; i < 200; i++)
+            {
+                var watch = Stopwatch.StartNew();
+                presets.Select(presets.Text.Length, 0); presets.SelectedText = "耶";
+                editTimes.Add(watch.Elapsed.TotalMilliseconds);
+                if (i % 20 == 0) await Task.Delay(1);
+            }
+            custom.Text = "自定义编辑测试";
+            Require(pet.FullSettingsApplyCount == applyCount, "continuous text edits avoid audio and full-window settings reconfiguration", checks);
+            Require(pet.Settings.PresetPhrases == presets.Text && pet.Settings.CustomPhrases == custom.Text,
+                "continuous text edits retain the latest preset and custom text", checks);
+            editTimes.Sort();
+            dialogueEditP95Ms = editTimes[(int)Math.Ceiling(editTimes.Count * .95) - 1];
+            dialogueEditMaxMs = editTimes[^1];
             presets.Text = "昨日一去不复回"; custom.Text = "";
             pet.SayRandom();
             Require(pet.BubblePanel.CurrentText == "昨日一去不复回", "editing presets replaces the random dialogue pool immediately", checks);
@@ -108,7 +132,7 @@ internal static class SmokeTest
             Snapshot((FrameworkElement)pet.Content, Path.Combine(output, "pet.png"));
             pet.Settings.Size = 220; pet.ApplySettings(); pet.SettingsPanel.Reload(); await Task.Delay(100);
             Snapshot((FrameworkElement)pet.SettingsPanel.Content, Path.Combine(output, "settings.png"));
-            File.WriteAllText(Path.Combine(output, "smoke-result.json"), JsonSerializer.Serialize(new { passed = true, checks, memoryMB = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / 1048576.0 }, new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(Path.Combine(output, "smoke-result.json"), JsonSerializer.Serialize(new { passed = true, checks, dialogueEditP95Ms, dialogueEditMaxMs, memoryMB = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / 1048576.0 }, new JsonSerializerOptions { WriteIndented = true }));
             pet.Exit();
         }
         catch (Exception ex)

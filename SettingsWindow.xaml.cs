@@ -17,7 +17,7 @@ namespace BonbonPet;
 public partial class SettingsWindow : Window
 {
     private readonly PetWindow _pet;
-    private readonly UpdateService _updates = new("Mr-Goodname", "dandan-desktop-pet");
+    private readonly UpdateService _updates = new("Mr-Goodname", "tantan-desktop-pet");
     private CancellationTokenSource? _updateCancellation;
     private Uri? _latestReleasePage;
     private readonly FontFamily[] _fonts = Fonts.SystemFontFamilies.OrderBy(font => font.Source, StringComparer.CurrentCultureIgnoreCase).ToArray();
@@ -27,6 +27,7 @@ public partial class SettingsWindow : Window
         _pet = pet;
         InitializeComponent();
         VersionText.Text = "当前版本：" + _updates.CurrentVersion;
+        FooterStatus.Text = "设置自动保存 · v" + _updates.CurrentVersion;
         ((ComboBoxItem)SoundCombo.Items[1]).IsEnabled = AudioService.HasDuckAssets;
         if (!AudioService.HasDuckAssets) ((ComboBoxItem)SoundCombo.Items[1]).ToolTip = "此版本未附带橡胶鸭音效，可导入自定义音效。";
         Closed += (_, _) => { _updateCancellation?.Cancel(); _updates.Dispose(); };
@@ -107,17 +108,22 @@ public partial class SettingsWindow : Window
     private void PhrasesChanged(object sender, TextChangedEventArgs e)
     {
         if (!_ready) return;
-        _pet.Settings.CustomPhrases = PhrasesBox.Text; _pet.ApplySettings();
+        _pet.Settings.CustomPhrases = PhrasesBox.Text; _pet.ApplyDialogueSettings();
     }
     private void PresetPhrasesChanged(object sender, TextChangedEventArgs e)
     {
         if (!_ready) return;
-        _pet.Settings.PresetPhrases = PresetPhrasesBox.Text; _pet.ApplySettings();
+        _pet.Settings.PresetPhrases = PresetPhrasesBox.Text; _pet.ApplyDialogueSettings();
     }
     private void RestorePreset_Click(object sender, RoutedEventArgs e)
     {
         _pet.Settings.PresetPhrases = null;
-        Reload(); _pet.ApplySettings();
+        PresetPhrasesBox.Text = PhraseBook.DefaultPresetText;
+        // TextChanged stores editor contents. Keep null as the explicit default
+        // selection after refreshing just this editor, without reloading fonts,
+        // audio controls and the rest of the settings panel.
+        _pet.Settings.PresetPhrases = null;
+        _pet.ApplyDialogueSettings();
     }
     private FontFamily? FindFont(string name) => _fonts.FirstOrDefault(font => string.Equals(font.Source, name, StringComparison.OrdinalIgnoreCase));
     private void SetBubbleFont(FontFamily? font)

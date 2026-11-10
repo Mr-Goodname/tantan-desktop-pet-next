@@ -186,7 +186,7 @@ public sealed class AudioService : IDisposable
         float volume = _squeakVolume;
         if (_disposed || !_soundActive || volume <= .001f) return;
         short[] samples;
-        lock (_squeakGate) samples = _squeakSamples;
+        lock (_squeakGate) { samples = _squeakSamples; _pressArmed = false; }
         EnqueueSound(samples, volume);
     }
 
@@ -224,13 +224,17 @@ public sealed class AudioService : IDisposable
                     if (_outputDeviceId != currentDevice) _outputReconnect = true;
                 }
                 catch { }
-                if (_outputReconnect || _squeakPlayer is null)
+                if (_outputReconnect || _squeakPlayer is null || _squeakPlayer.PlaybackState != PlaybackState.Playing)
                 {
                     _outputReconnect = false;
                     CloseSqueakPlayer();
                     try
                     {
-                        var player = new WaveOutEvent { DesiredLatency = 40, NumberOfBuffers = 2 };
+                        // Three buffers give the driver room to survive a short
+                        // scheduling pause while the desktop is being dragged.
+                        // The former two 20 ms buffers could underrun even though
+                        // the clip was already decoded and the handle was warm.
+                        var player = new WaveOutEvent { DesiredLatency = 120, NumberOfBuffers = 3 };
                         try { player.Init(_squeakProvider); player.Play(); }
                         catch { player.Dispose(); throw; }
                         _squeakPlayer = player;
@@ -562,28 +566,25 @@ public sealed class AudioService : IDisposable
 
     internal sealed class SqueakProvider : IWaveProvider
     {
-        private const int Capacity = 8;
+        // One latest gesture, with at most one press and its matching release.
+        private const int Capacity = 2;
         private readonly object _gate = new();
         private readonly Segment[] _segments = new Segment[Capacity];
         private int _head, _count, _pendingSamples;
+        private bool _releaseQueued;
         public WaveFormat WaveFormat { get; } = new(44100, 16, 1);
 
         public int Enqueue(short[] samples, float volume, bool releasePart = false)
         {
             lock (_gate)
             {
-                // Fixed storage prevents a rapid-click storm building an
-                // unbounded backlog. A latest gesture still keeps its two parts.
-                if (_count == Capacity)
-                {
-                    var lastPress = _segments[(_head + _count - 1) % Capacity];
-                    ClearCore();
-                    if (releasePart)
-                    {
-                        _segments[0] = lastPress; _count = 1;
-                        _pendingSamples = lastPress.Samples.Length - lastPress.Position;
-                    }
-                }
+                if (samples.Length == 0) return _pendingSamples;
+                // A fresh pinch or preview replaces the previous sound, even
+                // mid-clip. Its release appends to that latest press only; rapid
+                // clicks never build a backlog or call Stop/Init on the driver.
+                if (!releasePart) ClearCore();
+                else if (_releaseQueued) return _pendingSamples;
+                if (releasePart) _releaseQueued = true;
                 _segments[(_head + _count) % Capacity] = new Segment(samples, volume);
                 _count++; _pendingSamples += samples.Length;
                 return _pendingSamples;
@@ -594,6 +595,7 @@ public sealed class AudioService : IDisposable
         private void ClearCore()
         {
             Array.Clear(_segments); _head = _count = _pendingSamples = 0;
+            _releaseQueued = false;
         }
 
         public int Read(byte[] buffer, int offset, int count)
@@ -628,7 +630,8 @@ public sealed class AudioService : IDisposable
             public short[] Samples;
             public float Volume;
             public int Position;
-            public Segment(short[] samples, float volume) { Samples = samples; Volume = volume; Position = 0; }
+            public Segment(short[] samples, float volume)
+            { Samples = samples; Volume = volume; Position = 0; }
         }
     }
 }

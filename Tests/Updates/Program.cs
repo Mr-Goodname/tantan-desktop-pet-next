@@ -42,7 +42,7 @@ using (var service = new UpdateService("test-owner", "BonbonPet", new StubHandle
 {
     Check(request.RequestUri!.AbsoluteUri == "https://api.github.com/repos/test-owner/BonbonPet/releases/latest",
         "Only public stable latest-release API is queried");
-    Check(request.Headers.UserAgent.ToString() == "BonbonPet/0.3.0", "GitHub requires versioned User-Agent");
+    Check(request.Headers.UserAgent.ToString() == "TantanPet/0.3.0", "GitHub requires versioned User-Agent");
     Check(request.Headers.Authorization is null, "No token sent");
     return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Release()) });
 }), "0.3.0"))
