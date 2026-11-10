@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
@@ -178,6 +179,7 @@ internal static class SmokeTest
             pet.Settings.Size = 220; pet.ApplySettings(); pet.SettingsPanel.Reload(); await Task.Delay(100);
             Snapshot((FrameworkElement)pet.SettingsPanel.Content, Path.Combine(output, "settings.png"));
             VerifyPointerDialogue(pet, output, checks);
+            VerifyBubblePlacement(pet, output, checks);
             checks.AddRange(await GifAudioSmokeTest.Run(pet, output));
             checks.AddRange(await FullscreenSmokeTest.Run(pet, output));
             if (pet.Coordinator is not null) checks.AddRange(await MultiPetSmokeTest.Run(pet.Coordinator, output));
@@ -190,6 +192,122 @@ internal static class SmokeTest
             pet.Dispose(); System.Windows.Application.Current.Shutdown(1);
         }
     }
+    private static void VerifyBubblePlacement(PetWindow pet, string output, List<string> checks)
+    {
+        var saved = pet.Settings.Copy();
+        var position = new Point(pet.Physics.X, pet.Physics.Y);
+        var velocity = new Point(pet.Physics.VelocityX, pet.Physics.VelocityY);
+        double angle = pet.Physics.Angle, angularVelocity = pet.Physics.AngularVelocity;
+        bool bubbleWasVisible = pet.BubblePanel.IsVisible;
+        string previousText = pet.BubblePanel.CurrentText;
+        var fields = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var deadlineField = typeof(PetWindow).GetField("_bubbleDeadline", fields)!;
+        var lifetimeField = typeof(PetWindow).GetField("_bubbleUntil", fields)!;
+        double previousDeadline = (double)deadlineField.GetValue(pet)!, previousLifetime = (double)lifetimeField.GetValue(pet)!;
+        try
+        {
+            pet.Settings.AudioEnabled = false; pet.Settings.SqueakVolume = 0; pet.Settings.PhysicsEnabled = false;
+            pet.Settings.BubblesEnabled = false; pet.Settings.Size = 160; pet.Settings.BubbleScale = 1;
+            pet.Settings.BubbleFontSize = 13.5; pet.Settings.BubbleFontWeight = 400;
+            pet.Settings.PresetPhrases = "看我看我~"; pet.Settings.CustomPhrases = "";
+            pet.ApplySettings();
+            var screen = DesktopService.GetMonitorBounds(new WindowInteropHelper(pet).Handle);
+            pet.Physics.X = (screen.Left + screen.Right) / 2; pet.Physics.Y = screen.Top;
+            pet.RefreshAfterPeerCollision(); pet.SayRandom();
+            var bubble = pet.BubblePanel;
+            const string lines = "第一行：你好呀\n第二行：欧耶耶~";
+            bubble.Say(lines); pet.RefreshAfterPeerCollision();
+            var host = (System.Windows.Controls.Border)bubble.Content;
+            var surface = (ThoughtBubbleSurface)host.Child;
+            var text = (System.Windows.Controls.TextBlock)surface.Child;
+            var bubbleHandle = new WindowInteropHelper(bubble).Handle;
+            Require(GetSmokeWindowRect(bubbleHandle, out var below), "the lower bubble has a real native window rectangle", checks);
+            var natural = surface.NaturalSize;
+            double width = bubble.ActualWidth, height = bubble.ActualHeight, scale = bubble.CurrentVisualScale;
+            Require(bubble.PointsUp && below.Top > pet.Physics.Y && below.Bottom <= screen.Bottom - 7,
+                "the top screen boundary places the real bubble below the character with its dots pointing up", checks);
+            Require(((Transform)text.TransformToAncestor(bubble)).Value.M22 > 0 && text.Text == lines &&
+                surface.ContainsTextBounds(surface.TextLayoutBounds),
+                "the lower bubble keeps its glyphs upright and its original line order inside the reflected paper", checks);
+            VerifyBubbleRaster(bubble, true, Path.Combine(output, "bubble-below-artwork.png"), checks);
+            SnapshotPetAndBubble(pet, Path.Combine(output, "bubble-below-character.png"));
+            pet.Physics.Y = screen.Bottom; pet.RefreshAfterPeerCollision();
+            Require(GetSmokeWindowRect(bubbleHandle, out var above), "the restored upper bubble has a real native window rectangle", checks);
+            Require(!bubble.PointsUp && above.Bottom < pet.Physics.Y && above.Top >= screen.Top + 7,
+                "moving the character away from the top boundary restores an upper bubble with its dots pointing down", checks);
+            Require(bubble.ActualWidth == width && bubble.ActualHeight == height && surface.NaturalSize == natural &&
+                bubble.CurrentVisualScale == scale && above.Right - above.Left == below.Right - below.Left &&
+                above.Bottom - above.Top == below.Bottom - below.Top && ((Transform)text.TransformToAncestor(bubble)).Value.M22 > 0,
+                "switching bubble direction preserves native size, full artwork scale and upright text", checks);
+            VerifyBubbleRaster(bubble, false, Path.Combine(output, "bubble-above-artwork.png"), checks);
+            SnapshotPetAndBubble(pet, Path.Combine(output, "bubble-above-character.png"));
+        }
+        finally
+        {
+            foreach (var property in typeof(PetSettings).GetProperties(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public).Where(property => property.CanWrite))
+                property.SetValue(pet.Settings, property.GetValue(saved));
+            pet.ApplySettings(); pet.Physics.X = position.X; pet.Physics.Y = position.Y;
+            pet.Physics.VelocityX = velocity.X; pet.Physics.VelocityY = velocity.Y;
+            pet.Physics.Angle = angle; pet.Physics.AngularVelocity = angularVelocity;
+            if (bubbleWasVisible) pet.BubblePanel.Say(previousText); else pet.BubblePanel.Hide();
+            pet.RefreshAfterPeerCollision(); pet.SettingsPanel?.Reload();
+            deadlineField.SetValue(pet, previousDeadline); lifetimeField.SetValue(pet, previousLifetime);
+        }
+    }
+    private static void VerifyBubbleRaster(BubbleWindow bubble, bool pointsUp, string path, List<string> checks)
+    {
+        var content = (FrameworkElement)bubble.Content; content.UpdateLayout();
+        int width = (int)Math.Ceiling(content.ActualWidth), height = (int)Math.Ceiling(content.ActualHeight);
+        var target = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32); target.Render(content);
+        var pixels = new byte[width * height * 4]; target.CopyPixels(pixels, width * 4, 0);
+        var bandWidths = new List<int>(); int currentWidth = 0; bool edgeInk = false;
+        for (int y = 0; y < height; y++)
+        {
+            int left = width, right = -1;
+            for (int x = 0; x < width; x++)
+                if (pixels[(y * width + x) * 4 + 3] != 0)
+                {
+                    left = Math.Min(left, x); right = x;
+                    edgeInk |= x == 0 || x == width - 1 || y == 0 || y == height - 1;
+                }
+            if (right >= left) currentWidth = Math.Max(currentWidth, right - left + 1);
+            else if (currentWidth > 0) { bandWidths.Add(currentWidth); currentWidth = 0; }
+        }
+        if (currentWidth > 0) bandWidths.Add(currentWidth);
+        var directedBands = pointsUp ? bandWidths.AsEnumerable().Reverse().ToArray() : bandWidths.ToArray();
+        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(target)); using var file = File.Create(path); encoder.Save(file);
+        Require(directedBands.Length == 3 && directedBands[0] > directedBands[1] * 2 && directedBands[1] > directedBands[2],
+            "the real " + (pointsUp ? "lower" : "upper") + " bubble PNG orders the paper, large dot and small dot toward the character (band widths: " +
+                string.Join(",", bandWidths) + ")", checks);
+        Require(!edgeInk, "the real " + (pointsUp ? "lower" : "upper") + " bubble PNG retains every stroke without touching a clipping edge", checks);
+    }
+    private static void SnapshotPetAndBubble(PetWindow pet, string path)
+    {
+        if (!GetSmokeWindowRect(new WindowInteropHelper(pet).Handle, out var petRect) ||
+            !GetSmokeWindowRect(new WindowInteropHelper(pet.BubblePanel).Handle, out var bubbleRect))
+            throw new InvalidOperationException("Native pet and bubble rectangles are unavailable for the placement preview.");
+        int left = Math.Min(petRect.Left, bubbleRect.Left), top = Math.Min(petRect.Top, bubbleRect.Top);
+        int right = Math.Max(petRect.Right, bubbleRect.Right), bottom = Math.Max(petRect.Bottom, bubbleRect.Bottom);
+        var petContent = (FrameworkElement)pet.Content;
+        var bubbleContent = (FrameworkElement)pet.BubblePanel.Content;
+        var visual = new DrawingVisual();
+        using (var drawing = visual.RenderOpen())
+        {
+            drawing.DrawRectangle(new SolidColorBrush(Color.FromRgb(246, 248, 242)), null, new Rect(0, 0, right - left, bottom - top));
+            drawing.DrawRectangle(new VisualBrush(petContent)
+                { ViewboxUnits = BrushMappingMode.Absolute, Viewbox = new Rect(0, 0, petContent.ActualWidth, petContent.ActualHeight) }, null,
+                new Rect(petRect.Left - left, petRect.Top - top, petRect.Right - petRect.Left, petRect.Bottom - petRect.Top));
+            drawing.DrawRectangle(new VisualBrush(bubbleContent)
+                { ViewboxUnits = BrushMappingMode.Absolute, Viewbox = new Rect(0, 0, bubbleContent.ActualWidth, bubbleContent.ActualHeight) }, null,
+                new Rect(bubbleRect.Left - left, bubbleRect.Top - top, bubbleRect.Right - bubbleRect.Left, bubbleRect.Bottom - bubbleRect.Top));
+        }
+        var target = new RenderTargetBitmap(right - left, bottom - top, 96, 96, PixelFormats.Pbgra32); target.Render(visual);
+        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(target)); using var file = File.Create(path); encoder.Save(file);
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SmokeWindowRect { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll", EntryPoint = "GetWindowRect")]
+    private static extern bool GetSmokeWindowRect(IntPtr handle, out SmokeWindowRect rect);
     private static void VerifyPointerDialogue(PetWindow pet, string output, List<string> checks)
     {
         var saved = pet.Settings.Copy();

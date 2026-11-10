@@ -28,6 +28,7 @@ public sealed class BubbleWindow : Window
     internal int CurrentFontWeight => _text.FontWeight.ToOpenTypeWeight();
     internal double CurrentVisualScale => _visualTransform.ScaleX;
     internal double RequestedVisualScale => _requestedVisualScale;
+    internal bool PointsUp => _surface.PointsUp;
 
     public BubbleWindow()
     {
@@ -134,6 +135,14 @@ public sealed class BubbleWindow : Window
         LayoutText();
     }
 
+    /// <summary>Keep the detached thought dots facing the character without mirroring its text.</summary>
+    public void SetPointsUp(bool pointsUp)
+    {
+        if (_surface.PointsUp == pointsUp) return;
+        _surface.PointsUp = pointsUp;
+        if (IsVisible) UpdateLayout();
+    }
+
     private void LayoutText()
     {
         var unlimited = new Size(double.PositiveInfinity, double.PositiveInfinity);
@@ -206,8 +215,19 @@ internal sealed class ThoughtBubbleSurface : Decorator
     private TranslateTransform? _inkTranslation;
     private double _bodyWidth, _bodyHeight;
     private Point _firstDot, _secondDot;
+    private bool _pointsUp;
     internal Size NaturalSize { get; private set; }
     internal Rect TextLayoutBounds { get; private set; }
+    internal bool PointsUp
+    {
+        get => _pointsUp;
+        set
+        {
+            if (_pointsUp == value) return;
+            _pointsUp = value;
+            InvalidateArrange(); InvalidateVisual();
+        }
+    }
 
     public ThoughtBubbleSurface(TextBlock text) => Child = text;
 
@@ -258,6 +278,7 @@ internal sealed class ThoughtBubbleSurface : Decorator
         double top = TextTop(_bodyHeight, Child.DesiredSize.Height);
         TextLayoutBounds = new Rect(38 + _inkTranslation!.X, top + _inkTranslation.Y,
             _bodyWidth - 76, Child.DesiredSize.Height);
+        if (_pointsUp) TextLayoutBounds = ReflectBounds(TextLayoutBounds);
         Child.Arrange(TextLayoutBounds);
         return arrangeSize;
     }
@@ -266,9 +287,13 @@ internal sealed class ThoughtBubbleSurface : Decorator
     {
         if (bounds.IsEmpty || bounds.Width <= 0 || bounds.Height <= 0) return true;
         if (_body == null || _inkTranslation == null) return false;
+        if (_pointsUp) bounds = ReflectBounds(bounds);
         bounds.Offset(-_inkTranslation.X, -_inkTranslation.Y);
         return _body.FillContainsWithDetail(new RectangleGeometry(bounds)) == IntersectionDetail.FullyContains;
     }
+
+    private Rect ReflectBounds(Rect bounds) =>
+        new(bounds.X, NaturalSize.Height - bounds.Bottom, bounds.Width, bounds.Height);
 
     private static double TextTop(double bodyHeight, double textHeight) =>
         Math.Max(20, (bodyHeight - textHeight) / 2 - 3);
@@ -277,15 +302,19 @@ internal sealed class ThoughtBubbleSurface : Decorator
     {
         base.OnRender(drawing);
         if (_body == null || _inner == null || _inkTranslation == null) return;
+        // Reflect only the artwork. Arrange moves the text box into the flipped
+        // paper while leaving every glyph and the line order upright.
+        if (_pointsUp) drawing.PushTransform(new MatrixTransform(1, 0, 0, -1, 0, NaturalSize.Height));
         drawing.PushTransform(_inkTranslation);
         drawing.DrawGeometry(Paper, Outline, _body);
         drawing.DrawGeometry(null, InnerEdge, _inner);
-        // Two detached ovals point down towards the character, as in the reference.
+        // Two detached ovals point towards the character, as in the reference.
         drawing.DrawEllipse(Paper, LargeDotOutline, _firstDot, 12.5, 9.5);
         drawing.DrawEllipse(null, InnerEdge, _firstDot, 8.6, 5.6);
         drawing.DrawEllipse(Paper, SmallDotOutline, _secondDot, 8.4, 6.3);
         drawing.DrawEllipse(null, InnerEdge, _secondDot, 5.2, 3.1);
         drawing.Pop();
+        if (_pointsUp) drawing.Pop();
     }
 
     private static Geometry Body(double width, double height, double left, double top)

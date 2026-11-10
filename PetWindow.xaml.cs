@@ -426,9 +426,11 @@ public partial class PetWindow : Window, IDisposable
         double bw = _bubble.ActualWidth * bubbleScale, bh = _bubble.ActualHeight * bubbleScale;
         var edge = VisibleOffsets(Spin.Angle);
         double x = _physics.X - bw / 2, y = _physics.Y + edge.Top - bh - 7;
-        if (y < _bounds.Top + 8) y = _physics.Y + edge.Bottom + 7;
+        bool belowCharacter = y < _bounds.Top + 8;
+        if (belowCharacter) y = _physics.Y + edge.Bottom + 7;
         x = Math.Clamp(x, _bounds.Left + 8, Math.Max(_bounds.Left + 8, _bounds.Right - bw - 8));
         y = Math.Clamp(y, _bounds.Top + 8, Math.Max(_bounds.Top + 8, _bounds.Bottom - bh - 8));
+        _bubble.SetPointsUp(belowCharacter);
         _bubble.Place(x, y, Settings.Topmost);
     }
 

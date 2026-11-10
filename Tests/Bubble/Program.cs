@@ -144,8 +144,136 @@ internal static class Program
         bubble.Say(new string('耶', 110)); Validate(bubble, "dimension property coercion removed");
         Check(bubble.CurrentVisualScale > coercedScale && bubble.RequestedVisualScale == 5,
             "Removing property coercion restores the full requested scale as desktop space permits");
+        ValidateOrientations(bubble, output);
         bubble.Close(); app.Shutdown();
         Console.WriteLine($"{_checks} bubble checks passed; native size difference at most {_maximumNativeSizeDifference:F3}px. Preview: " + output);
+    }
+    private static void ValidateOrientations(BubbleWindow bubble, string output)
+    {
+        bubble.FitToBounds(1000, 700);
+        foreach (double size in new[] { 13.5, 32d })
+        foreach (double scale in new[] { .6, 1.8 })
+        foreach (string phrase in new[] { "FIRST ABC", "FIRST ABC\nMIDDLE W\nLAST XYZ" })
+        {
+            bubble.SetPointsUp(false); bubble.SetAppearance("Arial", size, scale, 700); bubble.Say(phrase);
+            Validate(bubble, $"points down {size}/{scale}/{phrase.Length}");
+            var content = (FrameworkElement)bubble.Content;
+            var surface = (ThoughtBubbleSurface)((System.Windows.Controls.Border)content).Child;
+            var text = (System.Windows.Controls.TextBlock)surface.Child;
+            var natural = surface.NaturalSize;
+            var windowSize = new Size(bubble.ActualWidth, bubble.ActualHeight);
+            double fontSize = bubble.CurrentFontSize, fittedScale = bubble.CurrentVisualScale;
+            var downText = Capture(content);
+            var foreground = text.Foreground;
+            text.Foreground = Brushes.Transparent;
+            var downArtwork = Capture(content);
+            text.Foreground = foreground;
+
+            bubble.SetPointsUp(true);
+            Validate(bubble, $"points up {size}/{scale}/{phrase.Length}");
+            Check(bubble.PointsUp && surface.NaturalSize == natural &&
+                Math.Abs(bubble.ActualWidth - windowSize.Width) < .001 && Math.Abs(bubble.ActualHeight - windowSize.Height) < .001 &&
+                bubble.CurrentFontSize == fontSize && bubble.CurrentVisualScale == fittedScale,
+                "Changing thought-dot direction preserves native dimensions, artwork size and text scale", false);
+            var textTransform = text.TransformToAncestor(content);
+            var origin = textTransform.Transform(new Point(0, 0));
+            var nextRow = textTransform.Transform(new Point(0, text.LineHeight));
+            Check(((Transform)text.TransformToAncestor(bubble)).Value.M22 > 0 && nextRow.Y > origin.Y && text.Text == phrase,
+                "Flipped artwork retains positive text-to-window vertical scale and original line order", false);
+            var upText = Capture(content);
+            text.Foreground = Brushes.Transparent;
+            var upArtwork = Capture(content);
+            text.Foreground = foreground;
+            var surfaceTransform = surface.TransformToAncestor(content);
+            double mirrorAxis = surfaceTransform.Transform(new Point(0, 0)).Y +
+                surfaceTransform.Transform(new Point(0, surface.NaturalSize.Height)).Y;
+            Check(MirrorMatches(downArtwork, upArtwork, mirrorAxis) > .995 && MirrorMatches(upArtwork, downArtwork, mirrorAxis) > .995,
+                "Rendered paper and detached thought dots vertically mirror around the unchanged natural bounds", false);
+            var downGlyphs = GlyphMask(downText, downArtwork);
+            var upGlyphs = GlyphMask(upText, upArtwork);
+            Check(TranslatedMaskMatches(downGlyphs, upGlyphs, downText.Width, downText.Height) > .98 &&
+                TranslatedMaskMatches(upGlyphs, downGlyphs, upText.Width, upText.Height) > .98,
+                "Rendered glyph shapes and multi-line reading order remain upright when the artwork points up", false);
+            if (size == 32 && scale == 1.8 && phrase.Contains('\n'))
+            {
+                SaveCapture(downText.Bitmap, Path.Combine(output, "bubble-orientation-down.png"));
+                SaveCapture(upText.Bitmap, Path.Combine(output, "bubble-orientation-up.png"));
+            }
+            bubble.SetPointsUp(false); Validate(bubble, $"restored direction {size}/{scale}/{phrase.Length}");
+        }
+        Check(!bubble.PointsUp, "Thought-dot direction can return below the bubble after crossing the screen edge");
+    }
+    private sealed record PixelCapture(int Width, int Height, byte[] Pixels, RenderTargetBitmap Bitmap);
+    private static PixelCapture Capture(FrameworkElement content)
+    {
+        content.UpdateLayout();
+        content.Dispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+        int width = (int)Math.Ceiling(content.ActualWidth), height = (int)Math.Ceiling(content.ActualHeight);
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(content);
+        var pixels = new byte[width * height * 4]; bitmap.CopyPixels(pixels, width * 4, 0);
+        return new PixelCapture(width, height, pixels, bitmap);
+    }
+    private static double MirrorMatches(PixelCapture source, PixelCapture target, double axis)
+    {
+        int total = 0, matches = 0;
+        for (int y = 0; y < source.Height; y++)
+        for (int x = 0; x < source.Width; x++)
+        {
+            if (source.Pixels[(y * source.Width + x) * 4 + 3] <= 64) continue;
+            total++;
+            int reflectedY = (int)Math.Round(axis - y - 1);
+            bool matched = false;
+            for (int dy = -2; dy <= 2 && !matched; dy++)
+            for (int dx = -1; dx <= 1 && !matched; dx++)
+            {
+                int targetX = x + dx, targetY = reflectedY + dy;
+                matched = targetX >= 0 && targetX < target.Width && targetY >= 0 && targetY < target.Height &&
+                    target.Pixels[(targetY * target.Width + targetX) * 4 + 3] > 64;
+            }
+            if (matched) matches++;
+        }
+        return total == 0 ? 0 : (double)matches / total;
+    }
+    private static bool[] GlyphMask(PixelCapture text, PixelCapture artwork)
+    {
+        var result = new bool[text.Width * text.Height];
+        for (int i = 0; i < result.Length; i++)
+        {
+            int offset = i * 4;
+            result[i] = Math.Abs(text.Pixels[offset] - artwork.Pixels[offset]) +
+                Math.Abs(text.Pixels[offset + 1] - artwork.Pixels[offset + 1]) +
+                Math.Abs(text.Pixels[offset + 2] - artwork.Pixels[offset + 2]) > 30;
+        }
+        return result;
+    }
+    private static double TranslatedMaskMatches(bool[] source, bool[] target, int width, int height)
+    {
+        static (int X, int Y) Start(bool[] mask, int width, int height)
+        {
+            int left = width, top = height;
+            for (int y = 0; y < height; y++) for (int x = 0; x < width; x++)
+                if (mask[y * width + x]) { left = Math.Min(left, x); top = Math.Min(top, y); }
+            return (left, top);
+        }
+        var sourceStart = Start(source, width, height); var targetStart = Start(target, width, height);
+        int total = 0, matches = 0;
+        for (int y = 0; y < height; y++) for (int x = 0; x < width; x++)
+        {
+            if (!source[y * width + x]) continue;
+            total++; bool matched = false;
+            for (int dy = -1; dy <= 1 && !matched; dy++) for (int dx = -1; dx <= 1 && !matched; dx++)
+            {
+                int tx = x - sourceStart.X + targetStart.X + dx, ty = y - sourceStart.Y + targetStart.Y + dy;
+                matched = tx >= 0 && tx < width && ty >= 0 && ty < height && target[ty * width + tx];
+            }
+            if (matched) matches++;
+        }
+        return total == 0 ? 0 : (double)matches / total;
+    }
+    private static void SaveCapture(BitmapSource bitmap, string path)
+    {
+        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var stream = File.Create(path); encoder.Save(stream);
     }
     private static void InstallDimensionCoercionRegression()
     {
