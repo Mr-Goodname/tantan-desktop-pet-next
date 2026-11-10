@@ -10,6 +10,7 @@ public sealed class PetSettings
     public const double DefaultBubbleFontSize = 13.5;
     public double Size { get; set; } = 220;
     public bool AudioEnabled { get; set; } = true;
+    public string GifAudioMode { get; set; } = "speed";
     public double Sensitivity { get; set; } = 1.3;
     public double SqueakVolume { get; set; } = .42;
     public double SqueezeStrength { get; set; } = 1.8;
@@ -27,6 +28,7 @@ public sealed class PetSettings
     public bool Topmost { get; set; } = true;
     public bool HideOnFullscreen { get; set; } = true;
     public bool BubblesEnabled { get; set; } = true;
+    public bool ClickShowsDialogue { get; set; } = true;
     public double BubbleInterval { get; set; } = 35;
     public string BubbleFontFamily { get; set; } = DefaultBubbleFontFamily;
     public double BubbleFontSize { get; set; } = DefaultBubbleFontSize;
@@ -68,12 +70,13 @@ public sealed class PetSettings
         if (settings.InstanceName.Length > 40) settings.InstanceName = settings.InstanceName[..40];
         settings.Size = Safe(settings.Size, 72, 480, 220);
         settings.Sensitivity = Safe(settings.Sensitivity, .2, 4, 1.3);
+        if (settings.GifAudioMode is not ("speed" or "deform")) settings.GifAudioMode = "speed";
         settings.SqueakVolume = Safe(settings.SqueakVolume, 0, 1, .42);
         settings.SqueezeStrength = Safe(settings.SqueezeStrength, 0, 3, 1.8);
         if (settings.SqueakSound is not ("original" or "duck" or "custom")) settings.SqueakSound = "original";
         settings.Speed = Safe(settings.Speed, 25, 650, 150);
         settings.KickInterval = Safe(settings.KickInterval, 3, 120, 12);
-        settings.BubbleInterval = Safe(settings.BubbleInterval, 10, 180, 35);
+        settings.BubbleInterval = Safe(settings.BubbleInterval, 1, 60, 35);
         settings.BubbleFontSize = Safe(settings.BubbleFontSize, 10, 32, DefaultBubbleFontSize);
         settings.BubbleScale = Safe(settings.BubbleScale, .5, 2, 1);
         settings.BubbleFontWeight = Math.Clamp((int)Math.Round(settings.BubbleFontWeight / 100d) * 100, 100, 900);

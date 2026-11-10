@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Windows;
 using BonbonPet.Core;
+using BonbonPet.Services;
 
 namespace BonbonPet;
 
@@ -11,16 +12,31 @@ public partial class App : System.Windows.Application
 {
     private Mutex? _singleInstance;
     private PetCoordinator? _coordinator;
+    internal static bool IsTesting { get; private set; }
     protected override void OnStartup(StartupEventArgs e)
     {
+        if (e.Args.Contains(FullscreenSmokeTest.HostArgument))
+        {
+            IsTesting = true;
+            FullscreenSmokeTest.RunHost(e.Args);
+            return;
+        }
         base.OnStartup(e);
         DispatcherUnhandledException += (_, args) => { Log(args.Exception); MessageBox.Show("运行发生错误，详情已写入本地 error.log。\n" + args.Exception.Message, "弹弹桌宠"); args.Handled = true; Shutdown(1); };
         bool benchmark = e.Args.Contains("--benchmark");
         bool test = e.Args.Contains("--self-test") || benchmark;
+        bool startup = e.Args.Contains("--startup");
+        IsTesting = test;
         if (!test)
         {
             _singleInstance = new Mutex(true, "Local\\BonbonPet.Desktop.v1", out bool created);
-            if (!created) { MessageBox.Show("弹弹桌宠已在运行。双击任务栏通知区域的桌宠图标可打开设置。", "弹弹桌宠"); Shutdown(); return; }
+            if (!created)
+            {
+                if (!startup) MessageBox.Show("弹弹桌宠已在运行。双击任务栏通知区域的桌宠图标可打开设置。", "弹弹桌宠");
+                Shutdown(); return;
+            }
+            try { StartupService.RefreshRegisteredPath(); }
+            catch (Exception ex) { Log(ex); }
         }
         try
         {
@@ -30,7 +46,7 @@ public partial class App : System.Windows.Application
             var pet = _coordinator.Start(profiles); MainWindow = pet;
             if (benchmark) _ = Benchmark.Run(pet, e.Args.SkipWhile(x => x != "--benchmark").Skip(1).FirstOrDefault());
             else if (test) _ = SmokeTest.Run(pet, e.Args.SkipWhile(x => x != "--self-test").Skip(1).FirstOrDefault());
-            else if (first || e.Args.Contains("--settings")) pet.ShowSettings();
+            else if (!startup && (first || e.Args.Contains("--settings"))) pet.ShowSettings();
         }
         catch (Exception ex) { Log(ex); MessageBox.Show("启动失败：\n" + ex.Message, "弹弹桌宠"); Shutdown(1); }
     }

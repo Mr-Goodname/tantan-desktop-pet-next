@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using BonbonPet.Controls;
@@ -176,6 +177,9 @@ internal static class SmokeTest
             Snapshot((FrameworkElement)pet.Content, Path.Combine(output, "pet.png"));
             pet.Settings.Size = 220; pet.ApplySettings(); pet.SettingsPanel.Reload(); await Task.Delay(100);
             Snapshot((FrameworkElement)pet.SettingsPanel.Content, Path.Combine(output, "settings.png"));
+            VerifyPointerDialogue(pet, output, checks);
+            checks.AddRange(await GifAudioSmokeTest.Run(pet, output));
+            checks.AddRange(await FullscreenSmokeTest.Run(pet, output));
             if (pet.Coordinator is not null) checks.AddRange(await MultiPetSmokeTest.Run(pet.Coordinator, output));
             File.WriteAllText(Path.Combine(output, "smoke-result.json"), JsonSerializer.Serialize(new { passed = true, checks, dialogueEditP95Ms, dialogueEditMaxMs, memoryMB = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64 / 1048576.0 }, new JsonSerializerOptions { WriteIndented = true }));
             pet.Exit();
@@ -186,6 +190,114 @@ internal static class SmokeTest
             pet.Dispose(); System.Windows.Application.Current.Shutdown(1);
         }
     }
+    private static void VerifyPointerDialogue(PetWindow pet, string output, List<string> checks)
+    {
+        var saved = pet.Settings.Copy();
+        var position = new Point(pet.Physics.X, pet.Physics.Y);
+        bool bubbleWasVisible = pet.BubblePanel.IsVisible;
+        string previousText = pet.BubblePanel.CurrentText;
+        var clockField = typeof(PetWindow).GetField("_clock", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var deadlineField = typeof(PetWindow).GetField("_bubbleDeadline", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var lifetimeField = typeof(PetWindow).GetField("_bubbleUntil", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        double previousDeadline = (double)deadlineField.GetValue(pet)!, previousLifetime = (double)lifetimeField.GetValue(pet)!;
+        try
+        {
+            pet.Settings.AudioEnabled = false; pet.Settings.SqueakVolume = 0;
+            pet.Settings.PhysicsEnabled = false; pet.Settings.BubblesEnabled = true; pet.Settings.ClickShowsDialogue = true;
+            pet.Settings.PresetPhrases = "点我一下，欧耶耶~"; pet.Settings.CustomPhrases = "";
+            pet.ApplySettings(); pet.BubblePanel.Hide();
+            PointerPress(pet); PointerRelease(pet);
+            Require(pet.BubblePanel.IsVisible && pet.BubblePanel.CurrentText == "点我一下，欧耶耶~",
+                "routed mouse press and release show the clicked instance's random dialogue", checks);
+            Snapshot((FrameworkElement)pet.BubblePanel.Content, Path.Combine(output, "bubble-click.png"));
+            pet.BubblePanel.Hide(); PointerRelease(pet);
+            Require(!pet.BubblePanel.IsVisible, "a duplicate mouse release cannot trigger a second click dialogue", checks);
+
+            pet.Settings.ClickShowsDialogue = false; pet.BubblePanel.Hide();
+            PointerPress(pet); PointerRelease(pet);
+            Require(!pet.BubblePanel.IsVisible, "disabling click dialogue keeps a normal click from opening a bubble", checks);
+            pet.Settings.ClickShowsDialogue = true; pet.Settings.BubblesEnabled = false;
+            PointerPress(pet); PointerRelease(pet);
+            Require(pet.BubblePanel.IsVisible && pet.BubblePanel.CurrentText == "点我一下，欧耶耶~",
+                "click dialogue remains available when automatic dialogue is disabled", checks);
+            pet.Settings.BubblesEnabled = true; pet.BubblePanel.Hide();
+            PointerPress(pet);
+            var grabPointField = typeof(PetWindow).GetField("_grabPoint", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            var grabbedPoint = (System.Drawing.Point)grabPointField.GetValue(pet)!;
+            pet.MovePointerForTest(new System.Drawing.Point(grabbedPoint.X + 12, grabbedPoint.Y));
+            var draggedField = typeof(PetWindow).GetField("_dragged", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            Require((bool)draggedField.GetValue(pet)!, "the shared pointer movement path marks a deterministic drag beyond the threshold", checks);
+            PointerRelease(pet);
+            Require(!pet.BubblePanel.IsVisible, "dragging beyond the pointer threshold does not trigger click dialogue", checks);
+            PointerPress(pet); pet.ReleaseMouseCapture();
+            Require(!pet.BubblePanel.IsVisible, "losing mouse capture without a release is not treated as a click", checks);
+
+            var clock = (Stopwatch)clockField.GetValue(pet)!;
+            pet.Settings.BubbleInterval = 60; pet.ApplySettings(); pet.SettingsPanel!.Reload();
+            var intervalSlider = (System.Windows.Controls.Slider)pet.SettingsPanel.FindName("BubbleSlider");
+            var automaticDialogue = (System.Windows.Controls.CheckBox)pet.SettingsPanel.FindName("BubblesCheck");
+            double slowDeadline = (double)deadlineField.GetValue(pet)!;
+            double beforeChange = clock.Elapsed.TotalSeconds;
+            intervalSlider.Value = 1;
+            double afterChange = clock.Elapsed.TotalSeconds, changedDeadline = (double)deadlineField.GetValue(pet)!;
+            Require(pet.Settings.BubbleInterval == 1 && changedDeadline >= beforeChange + 1 - .000001 &&
+                changedDeadline <= afterChange + 1.3 + .000001 && changedDeadline < slowDeadline,
+                "changing the dialogue interval slider from 60 to 1 immediately schedules a 1–1.3-second delay", checks);
+
+            pet.Settings.BubbleFontSize = pet.Settings.BubbleFontSize < 31 ? pet.Settings.BubbleFontSize + 1 : pet.Settings.BubbleFontSize - 1;
+            pet.ApplySettings();
+            Require((double)deadlineField.GetValue(pet)! == changedDeadline,
+                "applying an unrelated dialogue font setting leaves the scheduled dialogue time unchanged", checks);
+            pet.Settings.Size = pet.Settings.Size < 470 ? pet.Settings.Size + 10 : pet.Settings.Size - 10;
+            pet.ApplySettings();
+            Require((double)deadlineField.GetValue(pet)! == changedDeadline,
+                "applying an unrelated character size setting leaves the scheduled dialogue time unchanged", checks);
+            pet.SettingsPanel.Reload();
+
+            deadlineField.SetValue(pet, clock.Elapsed.TotalSeconds - 1);
+            beforeChange = clock.Elapsed.TotalSeconds; automaticDialogue.IsChecked = false;
+            afterChange = clock.Elapsed.TotalSeconds; changedDeadline = (double)deadlineField.GetValue(pet)!;
+            Require(!pet.Settings.BubblesEnabled && !pet.BubblePanel.IsVisible &&
+                changedDeadline >= beforeChange + 1 - .000001 && changedDeadline <= afterChange + 1.3 + .000001,
+                "turning automatic dialogue off hides its bubble and immediately replaces an expired deadline", checks);
+            deadlineField.SetValue(pet, clock.Elapsed.TotalSeconds - 1);
+            beforeChange = clock.Elapsed.TotalSeconds; automaticDialogue.IsChecked = true;
+            afterChange = clock.Elapsed.TotalSeconds; changedDeadline = (double)deadlineField.GetValue(pet)!;
+            Require(pet.Settings.BubblesEnabled && changedDeadline >= beforeChange + 1 - .000001 &&
+                changedDeadline <= afterChange + 1.3 + .000001,
+                "turning automatic dialogue back on starts a fresh 1–1.3-second delay", checks);
+
+            foreach (double interval in new[] { 1d, 60d })
+            {
+                pet.Settings.BubbleInterval = interval;
+                bool bounded = true;
+                for (int i = 0; i < 20; i++)
+                {
+                    double before = clock.Elapsed.TotalSeconds;
+                    pet.SayRandom();
+                    double after = clock.Elapsed.TotalSeconds, deadline = (double)deadlineField.GetValue(pet)!;
+                    bounded &= deadline >= before + 1 - .000001 && deadline <= after + 60 + .000001;
+                }
+                Require(bounded, "twenty automatic dialogue delays stay inside 1–60 seconds at interval " + interval, checks);
+            }
+        }
+        finally
+        {
+            if (pet.IsMouseCaptured) pet.ReleaseMouseCapture();
+            foreach (var property in typeof(PetSettings).GetProperties(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public).Where(property => property.CanWrite))
+                property.SetValue(pet.Settings, property.GetValue(saved));
+            pet.ApplySettings(); pet.Physics.X = position.X; pet.Physics.Y = position.Y;
+            pet.RefreshAfterPeerCollision(); pet.SettingsPanel?.Reload();
+            if (bubbleWasVisible) pet.BubblePanel.Say(previousText); else pet.BubblePanel.Hide();
+            deadlineField.SetValue(pet, previousDeadline); lifetimeField.SetValue(pet, previousLifetime);
+        }
+    }
+    private static void PointerPress(PetWindow pet) =>
+        ((UIElement)pet.FindName("PetImage")).RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            { RoutedEvent = UIElement.MouseLeftButtonDownEvent });
+    private static void PointerRelease(PetWindow pet) =>
+        pet.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Left)
+            { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
     private static void Require(bool pass, string name, List<string> checks) { if (!pass) throw new InvalidOperationException(name); checks.Add(name); }
     private static void Snapshot(FrameworkElement element, string path)
     {

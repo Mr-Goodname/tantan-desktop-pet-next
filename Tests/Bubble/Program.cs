@@ -124,13 +124,23 @@ internal static class Program
         double coercedScale;
         try
         {
+            // The limits live outside the dependency property. A same-value
+            // assignment can skip coercion, so explicitly invalidate both DP
+            // effective values when activating this simulated native ceiling.
+            bubble.CoerceValue(FrameworkElement.WidthProperty);
+            bubble.CoerceValue(FrameworkElement.HeightProperty);
             bubble.Say(new string('耶', 110)); Validate(bubble, "coerced dimension properties");
             Check(_dimensionCoercions > 0 && bubble.Width <= 310 && bubble.Height <= 220 &&
                 bubble.ActualWidth <= 311 && bubble.ActualHeight <= 221 && bubble.CurrentVisualScale < bubble.RequestedVisualScale,
-                "Coerced Width/Height getters cannot hide a too-large visual request");
+                $"Coerced Width/Height getters cannot hide a too-large visual request: coercions={_dimensionCoercions}, properties={bubble.Width:F3}x{bubble.Height:F3}, actual={bubble.ActualWidth:F3}x{bubble.ActualHeight:F3}, scale={bubble.CurrentVisualScale:F6}, requestedScale={bubble.RequestedVisualScale:F3}");
             coercedScale = bubble.CurrentVisualScale;
         }
-        finally { _coercedMaxWidth = _coercedMaxHeight = double.PositiveInfinity; }
+        finally
+        {
+            _coercedMaxWidth = _coercedMaxHeight = double.PositiveInfinity;
+            bubble.CoerceValue(FrameworkElement.WidthProperty);
+            bubble.CoerceValue(FrameworkElement.HeightProperty);
+        }
         bubble.Say(new string('耶', 110)); Validate(bubble, "dimension property coercion removed");
         Check(bubble.CurrentVisualScale > coercedScale && bubble.RequestedVisualScale == 5,
             "Removing property coercion restores the full requested scale as desktop space permits");

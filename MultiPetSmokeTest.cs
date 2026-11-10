@@ -55,9 +55,11 @@ internal static class MultiPetSmokeTest
             second.Settings.BubbleFontFamily = "Arial"; second.Settings.BubbleFontSize = 24;
             second.Settings.BubbleScale = 1.5; second.Settings.BubbleFontWeight = 700;
             second.Settings.PresetPhrases = "小绿的话"; second.Settings.CustomPhrases = "小绿的自定义";
+            second.Settings.ClickShowsDialogue = false;
             third.Settings.BubbleFontFamily = "Times New Roman"; third.Settings.BubbleFontSize = 10;
             third.Settings.BubbleScale = .5; third.Settings.BubbleFontWeight = 100;
             third.Settings.PresetPhrases = "小蓝的话"; third.Settings.CustomPhrases = "小蓝的自定义";
+            third.Settings.ClickShowsDialogue = true;
             second.Settings.Sensitivity = .8; third.Settings.Sensitivity = 2.4;
             second.ApplySettings(); third.ApplySettings();
             Require(primary.Settings.CharacterPath == original.CharacterPath && originalFrame.PixelWidth > 64 &&
@@ -90,6 +92,13 @@ internal static class MultiPetSmokeTest
             Require(second.Settings.Sensitivity == 1.1 && primary.Settings.Sensitivity == primarySensitivity && third.Settings.Sensitivity == thirdSensitivity,
                 "editing a panel selected through the combo changes only its bound character", checks);
             secondSensitivity.Value = .8;
+            var secondClick = (CheckBox)second.SettingsPanel.FindName("ClickDialogueCheck");
+            secondClick.IsChecked = true;
+            Require(second.Settings.ClickShowsDialogue && third.Settings.ClickShowsDialogue && primary.Settings.ClickShowsDialogue == original.ClickShowsDialogue,
+                "enabling click dialogue through a selected panel preserves the sibling click preferences", checks);
+            secondClick.IsChecked = false;
+            Require(!second.Settings.ClickShowsDialogue && third.Settings.ClickShowsDialogue && primary.Settings.ClickShowsDialogue == original.ClickShowsDialogue,
+                "disabling click dialogue changes only the selected character", checks);
             var nameEditor = (TextBox)second.SettingsPanel.FindName("InstanceNameBox");
             nameEditor.Text = "小绿改名";
             Require(second.Settings.InstanceName == "小绿改名" && IsSelectorBoundAndVisible(second, 3) &&
@@ -171,6 +180,7 @@ internal static class MultiPetSmokeTest
             Require(restored[1].CharacterPath == greenPath && restored[2].CharacterPath == bluePath &&
                 restored[1].BubbleFontFamily == "Arial" && restored[1].BubbleFontSize == 24 && restored[1].BubbleScale == 1.5 && restored[1].BubbleFontWeight == 700 &&
                 restored[2].BubbleFontFamily == "Times New Roman" && restored[2].BubbleScale == .5 && restored[2].BubbleFontWeight == 100 &&
+                !restored[1].ClickShowsDialogue && restored[2].ClickShowsDialogue &&
                 restored[1].PresetPhrases == "小绿的话" && restored[2].CustomPhrases == "小蓝的自定义",
                 "restored profiles retain their independent images, bubble styles and dialogue", checks);
             Require(coordinator.RemoveInstance(second) && coordinator.Instances.Count == 2 &&

@@ -98,6 +98,22 @@ var legacy = PetProfiles.Deserialize("{\"Instances\":[{\"SchemaVersion\":4,\"Siz
 Check(legacy.SchemaVersion == 5 && legacy.BubbleScale == 1 && legacy.BubbleFontWeight == 400 &&
     !legacy.RandomKickSpeed && legacy.PresetPhrases is null && legacy.CustomPhrases == "旧台词",
     "Older settings acquire new defaults while retaining default-preset selection and user text");
+Check(legacy.ClickShowsDialogue && legacy.GifAudioMode == "speed", "Existing profiles acquire click dialogue and the native-animation audio mode");
+var clickDisabled = first.Copy(); clickDisabled.ClickShowsDialogue = false; clickDisabled.BubblesEnabled = true; clickDisabled.GifAudioMode = "deform";
+var clickEnabled = second.Copy(); clickEnabled.ClickShowsDialogue = true; clickEnabled.BubblesEnabled = false; clickEnabled.GifAudioMode = "speed";
+var clickProfiles = PetProfiles.Deserialize(PetProfiles.Serialize(new[] { clickDisabled, clickEnabled }));
+Check(!clickProfiles[0].ClickShowsDialogue && clickProfiles[0].BubblesEnabled &&
+    clickProfiles[1].ClickShowsDialogue && !clickProfiles[1].BubblesEnabled,
+    "Click dialogue and timed dialogue retain independent choices in each profile");
+Check(clickProfiles[0].GifAudioMode == "deform" && clickProfiles[1].GifAudioMode == "speed",
+    "Each character preserves its own GIF animation or deformation audio mode");
+var unknownGifMode = new PetSettings { GifAudioMode = "unknown" }; unknownGifMode.Normalize();
+Check(unknownGifMode.GifAudioMode == "speed", "Unknown GIF audio modes safely restore native animation speed control");
+foreach (var (input, expected) in new[] { (0d, 1d), (1d, 1d), (60d, 60d), (999d, 60d), (double.NaN, 35d) })
+{
+    var interval = new PetSettings { BubbleInterval = input }; interval.Normalize();
+    Check(interval.BubbleInterval == expected, $"Dialogue interval {input} restores within one to sixty seconds");
+}
 var nonFinite = new PetSettings { CenterX = double.NaN, CenterY = double.PositiveInfinity, BubbleScale = double.NaN, Speed = double.NaN };
 nonFinite.Normalize();
 Check(nonFinite.CenterX is null && nonFinite.CenterY is null && nonFinite.BubbleScale == 1 && nonFinite.Speed == 150,

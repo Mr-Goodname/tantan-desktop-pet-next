@@ -38,6 +38,7 @@ public partial class PetWindow : Window, IDisposable
     private readonly List<double> _frameIntervals = new(400);
     private double _previousFrameTime;
     private double _spriteAdvanceAge;
+    private double _animationPlaybackRate = 1;
     private double _previewNext;
     private bool _collectFrameIntervals;
     private readonly DispatcherTimer _housekeeping;
@@ -48,11 +49,13 @@ public partial class PetWindow : Window, IDisposable
     private Forms.NotifyIcon? _tray;
     private IntPtr _handle;
     private double _scale = 1, _lastTime, _kickAge;
-    private double _bubbleDeadline = 12, _bubbleUntil;
+    private double _bubbleDeadline = double.PositiveInfinity, _bubbleUntil;
     private double _saveAfter = double.PositiveInfinity;
     private Task _settingsSaveTask = Task.CompletedTask;
     private static readonly JsonSerializerOptions SettingsJsonOptions = new() { WriteIndented = true };
     private double _configuredSpeed = double.NaN;
+    private double _configuredBubbleInterval = double.NaN;
+    private bool? _configuredBubblesEnabled;
     private double _audioAverage, _beatPulse, _beatAge = 1, _swayDirection = 1;
     private double _placedLeft = double.NaN, _placedTop = double.NaN;
     private bool _placedTopmost;
@@ -65,6 +68,7 @@ public partial class PetWindow : Window, IDisposable
     private string[] _phrases = Array.Empty<string>();
     public PetSettings Settings { get; }
     public BitmapSource CurrentFrame => _sprite.CurrentFrame;
+    internal bool IsAnimatedCharacter => _sprite.IsAnimated;
     internal PetCoordinator? Coordinator => _coordinator;
     internal bool IsAudioActive => !_disposed && !_suspended && Settings.AudioEnabled;
     internal bool IsCollisionActive => !_disposed && !_suspended;
@@ -89,6 +93,12 @@ public partial class PetWindow : Window, IDisposable
     internal int FullSettingsApplyCount { get; private set; }
     internal void BeginFrameMeasurement() { _frameIntervals.Clear(); _previousFrameTime = 0; _collectFrameIntervals = true; }
     internal double[] EndFrameMeasurement() { _collectFrameIntervals = false; return _frameIntervals.ToArray(); }
+    internal double CurrentAnimationPlaybackRate => _animationPlaybackRate;
+    internal void RenderAudioForTest(double rawLevel, double dt, TimeSpan renderingTime)
+    {
+        if (!_testing) throw new InvalidOperationException("Synthetic audio rendering is available only during self-tests.");
+        Animate(null, EventArgs.Empty, double.IsFinite(dt) ? Math.Clamp(dt, 0, .1) : 0, rawLevel, renderingTime);
+    }
     internal void ValidateTrayForTest() { if (_tray == null) CreateTray(); }
 
     public PetWindow(PetSettings settings, bool testing = false, PetCoordinator? coordinator = null, SpriteAnimation? sprite = null)
@@ -140,6 +150,12 @@ public partial class PetWindow : Window, IDisposable
     {
         if (_disposed) return;
         FullSettingsApplyCount++;
+        if (_configuredBubbleInterval != Settings.BubbleInterval || _configuredBubblesEnabled != Settings.BubblesEnabled)
+        {
+            _configuredBubbleInterval = Settings.BubbleInterval;
+            _configuredBubblesEnabled = Settings.BubblesEnabled;
+            ScheduleNextDialogue();
+        }
         Title = $"弹弹桌宠 · Tantan · {Settings.InstanceName}";
         Width = Height = Math.Ceiling(Settings.Size * 1.85);
         PetImage.Width = PetImage.Height = Settings.Size;
@@ -224,7 +240,7 @@ public partial class PetWindow : Window, IDisposable
         _lastRenderBucket = bucket; Animate(sender, e);
     }
 
-    private void Animate(object? sender, EventArgs e, double? coordinatedDt = null)
+    private void Animate(object? sender, EventArgs e, double? coordinatedDt = null, double? testAudioLevel = null, TimeSpan? testRenderingTime = null)
     {
         double now = _clock.Elapsed.TotalSeconds, dt = coordinatedDt ?? Math.Clamp(now - _lastTime, 0, .1); _lastTime = now;
         if (_suspended) return;
@@ -233,18 +249,11 @@ public partial class PetWindow : Window, IDisposable
             if (_previousFrameTime > 0) _frameIntervals.Add((now - _previousFrameTime) * 1000);
             _previousFrameTime = now;
         }
-        _spriteAdvanceAge += dt;
-        long spriteBucket = (long)Math.Floor(((RenderingEventArgs)e).RenderingTime.TotalSeconds * Settings.Fps + .000001);
-        if (_coordinator is null || spriteBucket != _lastRenderBucket)
-        {
-            _lastRenderBucket = spriteBucket;
-            _sprite.Advance(_spriteAdvanceAge); _spriteAdvanceAge = 0;
-            if (!ReferenceEquals(PetImage.Source, _sprite.CurrentFrame)) { PetImage.Source = _sprite.CurrentFrame; _hitFrame = null; }
-        }
         if (_previewReleaseAt > 0 && now >= _previewReleaseAt) { _previewReleaseAt = 0; _pressSpring.Release(); }
         _pressSpring.Step(dt, Settings.SqueezeStrength);
         double squeeze = _pressSpring.Compression;
-        double raw = Settings.AudioEnabled ? _audio.Level : 0;
+        double raw = Settings.AudioEnabled ? testAudioLevel ?? _audio.Level : 0;
+        raw = double.IsFinite(raw) ? Math.Clamp(raw, 0, 1) : 0;
         _audioAverage += (raw - _audioAverage) * (1 - Math.Exp(-2.2 * dt));
         double accent = Math.Clamp((raw - _audioAverage - .007) * 12 * Settings.Sensitivity, 0, 1);
         _beatAge += dt;
@@ -253,9 +262,30 @@ public partial class PetWindow : Window, IDisposable
         if (!Settings.AudioEnabled) _beatPulse = _audioAverage = 0;
         double activity = Math.Clamp(raw * .65 * Settings.Sensitivity, 0, 1);
         float level = (float)Math.Clamp(raw * Settings.Sensitivity, 0, 1);
-        double sx = 1 + squeeze * .85 - activity * .024 - _beatPulse * .035, sy = 1 - squeeze + activity * .065 + _beatPulse * .095;
+        bool animated = _sprite.IsAnimated;
+        bool speedDriven = animated && Settings.GifAudioMode == "speed";
+        if (speedDriven && Settings.AudioEnabled)
+        {
+            double targetRate = Math.Clamp(.65 + activity * .95 + _beatPulse, .65, 2.6);
+            _animationPlaybackRate += (targetRate - _animationPlaybackRate) * (1 - Math.Exp(-12 * dt));
+        }
+        else _animationPlaybackRate = 1;
+        // The speed option advances the artwork's cached frame timeline to
+        // audio. The deformation option keeps native timing and uses the same
+        // audio motion as static artwork; ordinary press feedback is separate.
+        _spriteAdvanceAge += dt * _animationPlaybackRate;
+        long spriteBucket = (long)Math.Floor((testRenderingTime ?? ((RenderingEventArgs)e).RenderingTime).TotalSeconds * Settings.Fps + .000001);
+        if (_coordinator is null || spriteBucket != _lastRenderBucket)
+        {
+            _lastRenderBucket = spriteBucket;
+            _sprite.Advance(_spriteAdvanceAge); _spriteAdvanceAge = 0;
+            if (!ReferenceEquals(PetImage.Source, _sprite.CurrentFrame)) { PetImage.Source = _sprite.CurrentFrame; _hitFrame = null; }
+        }
+        double visualActivity = speedDriven ? 0 : activity, visualPulse = speedDriven ? 0 : _beatPulse;
+        double sx = 1 + squeeze * .85 - visualActivity * .024 - visualPulse * .035,
+            sy = 1 - squeeze + visualActivity * .065 + visualPulse * .095;
         SetNear(Squash, ScaleTransform.ScaleXProperty, sx); SetNear(Squash, ScaleTransform.ScaleYProperty, sy);
-        SetNear(Bounce, TranslateTransform.YProperty, -Settings.Size * (.012 * activity + .055 * _beatPulse));
+        SetNear(Bounce, TranslateTransform.YProperty, -Settings.Size * (.012 * visualActivity + .055 * visualPulse));
         if (Settings.PhysicsEnabled && !_grabbed)
         {
             var edge = VisibleOffsets(_physics.AngleAfter(dt, Settings.Decay));
@@ -263,7 +293,7 @@ public partial class PetWindow : Window, IDisposable
             PlacePet(); _kickAge += dt;
             if (Settings.AutoKick && _kickAge >= Settings.KickInterval) { _physics.Kick(ChooseKickSpeed() * _scale); _kickAge = 0; }
         }
-        SetNear(Spin, RotateTransform.AngleProperty, Settings.PhysicsEnabled ? _physics.Angle : _swayDirection * (_beatPulse * 4 + activity * Math.Sin(now * 1.8) * 1.2));
+        SetNear(Spin, RotateTransform.AngleProperty, Settings.PhysicsEnabled ? _physics.Angle : _swayDirection * (visualPulse * 4 + visualActivity * Math.Sin(now * 1.8) * 1.2));
         // Rotation, GIF frame changes and squeezing can change the visible extent even at rest.
         if (!_grabbed) { ConstrainToScreen(); PlacePet(); }
         if (_bubble.IsVisible) { if (now >= _bubbleUntil) _bubble.Hide(); else PlaceBubble(); }
@@ -313,12 +343,34 @@ public partial class PetWindow : Window, IDisposable
 
     private void Housekeeping(object? sender, EventArgs e)
     {
-        bool hide = _manualHidden || (Settings.HideOnFullscreen && DesktopService.IsOtherAppFullscreen(_handle));
+        RefreshDesktop(DesktopService.GetOtherAppFullscreenWindow(_handle));
+        if (!_testing && _clock.Elapsed.TotalSeconds >= _saveAfter) SaveSettings(flush: false);
+    }
+
+    private void RefreshDesktop(IntPtr fullscreenWindow)
+    {
+        if (_disposed) return;
+        bool fullscreen = fullscreenWindow != IntPtr.Zero;
+        bool hide = _manualHidden || (Settings.HideOnFullscreen && fullscreen);
         SetSuspended(hide);
         double newScale = DesktopService.GetWindowScale(_handle);
         var bounds = DesktopService.GetMonitorBounds(_handle);
         if (newScale != _scale || bounds != _bounds) { _scale = newScale; _bounds = bounds; if (!_grabbed) ConstrainToScreen(); PlacePet(); }
-        if (!_testing && _clock.Elapsed.TotalSeconds >= _saveAfter) SaveSettings(flush: false);
+        if (_bubble.IsVisible && _bubble.Topmost != Settings.Topmost) _bubble.Topmost = Settings.Topmost;
+        if (!hide && fullscreen && Settings.Topmost)
+        {
+            // Placement can stay cached while a fullscreen HWND moves above us
+            // inside the topmost band. Repair both overlays independently of the
+            // coordinate and WS_EX_TOPMOST caches, with no foreground activation.
+            DesktopService.ReassertTopmost(_handle);
+            if (_bubble.IsVisible) DesktopService.ReassertTopmost(new WindowInteropHelper(_bubble).Handle);
+        }
+    }
+
+    internal void RefreshDesktopForTest(IntPtr foregroundWindow)
+    {
+        if (!_testing) throw new InvalidOperationException("Fullscreen fixture checks require an isolated testing instance.");
+        RefreshDesktop(DesktopService.IsFullscreenWindow(foregroundWindow, _handle) ? foregroundWindow : IntPtr.Zero);
     }
 
     private void SetSuspended(bool hide)
@@ -347,9 +399,11 @@ public partial class PetWindow : Window, IDisposable
         Settings.PhysicsEnabled = true; _wasPhysics = true; _physics.Kick(ChooseKickSpeed() * _scale); _kickAge = 0; ScheduleSave();
     }
     private double ChooseKickSpeed() => Settings.RandomKickSpeed ? 25 + Random.Shared.NextDouble() * Math.Max(0, Settings.Speed - 25) : Settings.Speed;
+    private void ScheduleNextDialogue() =>
+        _bubbleDeadline = _clock.Elapsed.TotalSeconds + Math.Clamp(Settings.BubbleInterval * (.7 + Random.Shared.NextDouble() * .6), 1, 60);
     public void SayRandom()
     {
-        _bubbleDeadline = _clock.Elapsed.TotalSeconds + Settings.BubbleInterval * (.7 + Random.Shared.NextDouble() * .6);
+        ScheduleNextDialogue();
         if (_phrases.Length == 0)
         {
             _bubble.Hide(); _settingsWindow?.ShowPhrase("请填写预设或自定义对话。"); return;
@@ -388,8 +442,16 @@ public partial class PetWindow : Window, IDisposable
     }
     private void PointerMove(object sender, System.Windows.Input.MouseEventArgs e)
     {
+        MovePointer(Forms.Cursor.Position);
+    }
+    internal void MovePointerForTest(System.Drawing.Point point)
+    {
+        if (!_testing) throw new InvalidOperationException("Pointer smoke checks require an isolated self-test window.");
+        MovePointer(point);
+    }
+    private void MovePointer(System.Drawing.Point point)
+    {
         if (!_grabbed) return;
-        var point = Forms.Cursor.Position;
         int dx = point.X - _grabPoint.X, dy = point.Y - _grabPoint.Y;
         _pointerVelocity.Add(_clock.Elapsed.TotalSeconds, point.X, point.Y);
         if (!_dragged && dx * dx + dy * dy < 25) return;
@@ -402,7 +464,10 @@ public partial class PetWindow : Window, IDisposable
     private void PointerUp(object sender, MouseButtonEventArgs e)
     {
         if (!_grabbed) return;
-        ReleaseGrab(); e.Handled = true;
+        bool showDialogue = !_dragged && Settings.ClickShowsDialogue;
+        ReleaseGrab();
+        if (showDialogue) SayRandom();
+        e.Handled = true;
     }
     private void ReleaseGrab()
     {

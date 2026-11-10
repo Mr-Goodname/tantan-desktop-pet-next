@@ -28,10 +28,18 @@
    <TabControl x:Name="SettingsTabs" Grid.Column="2" Background="Transparent" BorderThickness="0">
     <TabItem Header="基本设置"><ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Margin="0,14,8,0">
      <Border Style="{StaticResource Section}"><StackPanel>
+      <TextBlock Text="程序启动" Style="{StaticResource SectionTitle}"/>
+      <CheckBox x:Name="StartupCheck" Content="开机自启" Checked="StartupChanged" Unchecked="StartupChanged"/>
+      <TextBlock x:Name="StartupStatusText" Text="登录 Windows 后自动恢复所有角色。此开关对整个程序生效。" Style="{StaticResource Hint}"/>
+     </StackPanel></Border>
+     <Border Style="{StaticResource Section}"><StackPanel>
       <TextBlock Text="音频律动" Style="{StaticResource SectionTitle}"/>
       <CheckBox x:Name="AudioCheck" Content="跟随系统播放音频律动" Checked="ControlsChanged" Unchecked="ControlsChanged"/>
       <ProgressBar x:Name="AudioMeter" Minimum="0" Maximum="1" Height="6" Foreground="#53B6A4" Background="#EAF0EA" BorderThickness="0" Margin="0,3,0,8"/>
       <TextBlock x:Name="AudioStatus" Style="{StaticResource Hint}" Text="正在接入系统音频…"/>
+      <TextBlock Text="GIF 音频响应方式" FontSize="12" Margin="0,12,0,6"/>
+      <ComboBox x:Name="GifAudioModeCombo" SelectionChanged="GifAudioModeChanged" Padding="8"><ComboBoxItem Content="动画变速" Tag="speed"/><ComboBoxItem Content="拉伸弹跳" Tag="deform"/></ComboBox>
+      <TextBlock x:Name="GifAudioModeHint" Text="跟随音频加快或放慢 GIF 播放。" Style="{StaticResource Hint}" Margin="0,6,0,0"/>
       <Grid Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="律动灵敏度" FontSize="12"/><TextBlock x:Name="SensitivityText" Grid.Column="1" FontSize="12" Foreground="{StaticResource Muted}"/></Grid>
       <Slider x:Name="SensitivitySlider" Minimum="0.2" Maximum="4" TickFrequency="0.1" ValueChanged="SliderChanged"/>
      </StackPanel></Border>
@@ -95,9 +103,10 @@
      </StackPanel></Border>
      <Border Style="{StaticResource Section}"><StackPanel>
       <TextBlock Text="随机对话" Style="{StaticResource SectionTitle}"/>
-      <CheckBox x:Name="BubblesCheck" Content="启用随机对话框" Checked="ControlsChanged" Unchecked="ControlsChanged"/>
-      <Grid Margin="0,10,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="出现间隔" FontSize="12"/><TextBlock x:Name="BubbleText" Grid.Column="1" FontSize="12" Foreground="{StaticResource Muted}"/></Grid>
-      <Slider x:Name="BubbleSlider" Minimum="10" Maximum="180" ValueChanged="SliderChanged"/>
+      <CheckBox x:Name="BubblesCheck" Content="自动显示随机对话" Checked="ControlsChanged" Unchecked="ControlsChanged"/>
+      <CheckBox x:Name="ClickDialogueCheck" Content="点击角色时显示随机对话" Checked="ControlsChanged" Unchecked="ControlsChanged"/>
+      <Grid Margin="0,10,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="自动出现间隔" FontSize="12"/><TextBlock x:Name="BubbleText" Grid.Column="1" FontSize="12" Foreground="{StaticResource Muted}"/></Grid>
+      <Slider x:Name="BubbleSlider" Minimum="1" Maximum="60" TickFrequency="1" IsSnapToTickEnabled="True" ValueChanged="SliderChanged"/>
       <Grid Margin="0,12,0,0"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="泡泡整体大小" FontSize="12"/><TextBlock x:Name="BubbleScaleText" Grid.Column="1" FontSize="12" Foreground="{StaticResource Muted}"/></Grid>
       <Slider x:Name="BubbleScaleSlider" Minimum="0.5" Maximum="2" TickFrequency="0.05" IsSnapToTickEnabled="True" ValueChanged="BubbleScaleChanged"/>
       <TextBlock Text="在跟随角色缩放的基础上，单独调整整个泡泡和文字的大小。" Style="{StaticResource Hint}"/>

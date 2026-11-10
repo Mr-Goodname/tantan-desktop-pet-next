@@ -15,6 +15,7 @@ public static class DesktopService
     private const long WsExNoActivate = 0x08000000;
     private const long WsExTopmost = 0x00000008;
     private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpNoOwnerZOrder = 0x0200;
@@ -41,6 +42,18 @@ public static class DesktopService
             0, 0, flags);
     }
 
+    /// <summary>
+    /// Raise a visible overlay within the topmost band without moving, resizing,
+    /// or activating it. A new fullscreen topmost window can cover an overlay
+    /// even while its WS_EX_TOPMOST flag remains set.
+    /// </summary>
+    public static bool ReassertTopmost(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero || !IsWindowVisible(hwnd)) return false;
+        return SetWindowPos(hwnd, new IntPtr(-1), 0, 0, 0, 0,
+            SwpNoMove | SwpNoSize | SwpNoActivate | SwpNoOwnerZOrder);
+    }
+
     /// <summary>Full monitor bounds in physical virtual-screen pixels, including the taskbar area.</summary>
     public static (double Left, double Top, double Right, double Bottom) GetMonitorBounds(IntPtr hwnd)
     {
@@ -58,9 +71,18 @@ public static class DesktopService
     }
 
     /// <summary>Checks the foreground app against its own monitor; ignores our process and Explorer's desktop.</summary>
-    public static bool IsOtherAppFullscreen(IntPtr ownWindowHandle)
+    public static bool IsOtherAppFullscreen(IntPtr ownWindowHandle) => GetOtherAppFullscreenWindow(ownWindowHandle) != IntPtr.Zero;
+
+    public static IntPtr GetOtherAppFullscreenWindow(IntPtr ownWindowHandle)
     {
         var foreground = GetForegroundWindow();
+        return IsFullscreenWindow(foreground, ownWindowHandle) ? foreground : IntPtr.Zero;
+    }
+
+    // The same real HWND classifier is available to the isolated fullscreen
+    // smoke fixture without changing the user's actual foreground application.
+    internal static bool IsFullscreenWindow(IntPtr foreground, IntPtr ownWindowHandle)
+    {
         if (foreground == IntPtr.Zero || foreground == ownWindowHandle || !IsWindowVisible(foreground) || IsIconic(foreground))
             return false;
         GetWindowThreadProcessId(foreground, out var pid);

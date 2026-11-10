@@ -26,9 +26,27 @@ jobs:
             'Tests/Sounds/BonbonPet.SoundTests.csproj',
             'Tests/Updates/BonbonPet.UpdateTests.csproj',
             'Tests/Profiles/BonbonPet.ProfileTests.csproj',
+            'Tests/Startup/BonbonPet.StartupTests.csproj',
             'Tests/Collisions/BonbonPet.CollisionTests.csproj'
           )
           foreach ($projectPath in $projects) {
             dotnet run --project $projectPath -c Release
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Check actual desktop windows
+        shell: pwsh
+        run: |
+          $testOutput = Join-Path $PWD 'artifacts/ci-smoke'
+          $appPath = Join-Path $PWD 'bin/Release/net8.0-windows/BonbonPet.exe'
+          $check = Start-Process -FilePath $appPath -ArgumentList @('--self-test', $testOutput) -PassThru -WindowStyle Hidden
+          if (!$check.WaitForExit(60000)) { $check.Kill(); throw 'Desktop window checks did not finish in 60 seconds.' }
+          $report = Get-Content -LiteralPath (Join-Path $testOutput 'smoke-result.json') -Raw | ConvertFrom-Json
+          if (!$report.passed -or $check.ExitCode -ne 0) { $report | ConvertTo-Json -Depth 6; throw 'Desktop window checks failed.' }
+          Write-Host ($report.checks.Count.ToString() + ' desktop window checks passed.')
+      - name: Keep desktop check results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-window-checks
+          path: artifacts/ci-smoke/
+          if-no-files-found: ignore
